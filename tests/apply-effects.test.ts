@@ -3,7 +3,7 @@ import { applyEffects, type EffectTarget } from "../party/room/apply";
 import type { RoomServerMessage } from "../shared/protocol";
 import type { Effect } from "../party/room/room";
 
-const lobby: RoomServerMessage = { type: "lobby", players: [], roundSeconds: 180, youId: "x" };
+const lobby: RoomServerMessage = { type: "lobby", players: [], roundSeconds: 180, youId: "x", phase: "lobby" };
 
 describe("applyEffects", () => {
   test("sends JSON to the right connection and closes with the code", () => {

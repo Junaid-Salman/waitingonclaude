@@ -1,4 +1,4 @@
-import { SOLO_MAX_GUESSES, type GuessRejectReason, type TileColour } from "../../../shared/protocol";
+import { MAX_GUESSES, type GuessRejectReason, type TileColour } from "../../../shared/protocol";
 import { scoreGuess } from "./score";
 import { isValidGuess, normalise } from "./words";
 
@@ -33,7 +33,7 @@ export function submitGuess(board: Board, raw: string): { board: Board; outcome:
 
   const colours = scoreGuess(word, board.answer);
   const rows = [...board.rows, { word, colours }];
-  const finished = word === board.answer ? "won" : rows.length >= SOLO_MAX_GUESSES ? "lost" : null;
+  const finished = word === board.answer ? "won" : rows.length >= MAX_GUESSES ? "lost" : null;
   return {
     board: { ...board, rows, status: finished ?? "playing" },
     outcome: { kind: "accepted", word, colours, finished },

@@ -17,8 +17,8 @@ Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScri
 | 0 Bootstrap | Scaffold, tooling, guardrails | Done, committed |
 | 1 Woordle core | Solo game, word lists, scoring, design tokens | Done, committed |
 | 2 Rooms | Create/join by link, lobby, host, cap, takeover | Done, committed |
-| 3 Time Race | Rounds, timers, ranking, `start`/`playAgain` | **Next** (plan not yet written) |
-| 4 Challenge | AES-GCM link, solver session | Not started (`party/challenge.ts` is a stub) |
+| 3 Time Race | Rounds, timers, ranking, `start`/`playAgain`, opponent boards | Done |
+| 4 Challenge | AES-GCM link, solver session | **Next** (plan not yet written; `party/challenge.ts` is a stub) |
 | 5 Polish | 60 s reconnect grace, rate limits, animations, mobile | Not started |
 | 6 Launch | Deploy, playtest | Not started |
 
@@ -29,10 +29,13 @@ Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/P
 | If the task is about | Read | Skip |
 | --- | --- | --- |
 | Scoring, guesses, solo rules | `party/games/woordle/{score,board,solo-session}.ts`, `tests/{score,board}.test.ts` | word JSON |
-| Room rules (join, cap, host, takeover) | `party/room/room.ts` (198 lines, all rules), `tests/room.test.ts` | `party/main.ts` (thin adapter) |
-| Message shapes | `shared/protocol.ts` (52 lines), `shared/room-code.ts` | Spec 2.5 unless changing it |
+| Match rules (rounds, timers, early end, ranking) | `party/games/woordle/game.ts`, `ranking.ts`, `tests/woordle-game.test.ts` | |
+| Game contract (what a game may do) | `party/games/types.ts` (Spec 2.4 mirrors it) | |
+| Room rules (join, cap, host, takeover, start, playAgain, timers) | `party/room/room.ts` (all rules), `tests/room.test.ts`, `tests/room-match.test.ts` | `party/main.ts` (thin adapter) |
+| Message shapes | `shared/protocol.ts`, `shared/room-code.ts` | Spec 2.5 unless changing it |
 | Room HTTP / CORS | `party/room/http.ts`, `tests/http.test.ts` | |
-| Lobby / room UI | `src/components/room/RoomPage.tsx` (state machine), then the component you need | |
+| Lobby / room UI | `src/components/room/RoomPage.tsx` (picks lobby or match screen), then the component you need | |
+| Match UI | `src/components/room/MatchScreen.tsx`, `src/lib/room/match-store.ts`, `src/lib/room/clock.ts` | |
 | Solo UI | `src/components/woordle/SoloGame.tsx`, `src/lib/woordle/store.ts` | |
 | Colours, fonts, type scale | `src/lib/colors.ts`, `tailwind.config.ts` | `globals.css` (8 lines, no values) |
 | Word lists | `scripts/build-wordlists.mjs`, `party/data/LICENSES.md` | `party/data/*.json` |
@@ -52,13 +55,13 @@ shared/                    code used by BOTH sides. No secrets, no word data
   protocol.ts              all message types + constants (MAX_PLAYERS, ROUND_SECONDS_OPTIONS...)
   room-code.ts             4-letter code alphabet, isRoomCode, generateRoomCode
 party/                     SERVER. Never imported by src/ (ESLint-enforced)
-  main.ts                  PartyKit adapter for rooms: createRoomServer({testHooks?})
+  main.ts                  PartyKit adapter for rooms: createRoomServer({game?}), real clock, applies timer effects
   solo.ts                  Phase 1 scaffold: one solo game per connection (fate decided in Phase 3)
   challenge.ts             stub (Phase 4)
   room/                    room.ts (pure rules), names.ts, http.ts (201/409/400 + CORS), apply.ts, types.ts
-  games/                   types.ts (GameDefinition, Spec 2.4), index.ts (empty registry), woordle/*
+  games/                   types.ts (GameDefinition contract), index.ts (registry: woordle), woordle/{game,match rules,ranking,score,board,...}
   data/                    answers.json (1,374), guesses.json (6,483), LICENSES.md
-  e2e/                     test-only server entries (fixed answer, __setPhase hook)
+  e2e/                     test-only server entries: fixed answers, round limits shrunk to 1% (injected, no test branch in room code)
 src/                       FRONTEND (browser)
   app/                     /, /woordle, /woordle/solo, /woordle/room/[code], layout, globals.css
   components/{woordle,room}/   UI
@@ -68,10 +71,10 @@ src/                       FRONTEND (browser)
   lib/woordle/             store.ts, solo-client.ts, keyboard.ts
 tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables
 scripts/                   build-wordlists.mjs, check-bundle.mjs, answers-exclude.txt
-tests/                     Vitest (23 files, 226 tests), imports server and client code directly
-e2e/                       Playwright (3 specs, 20 tests)
+tests/                     Vitest (28 files, 367 tests), helpers in tests/helpers (fake clock, test game)
+e2e/                       Playwright (4 specs, 26 tests), shared player helpers in e2e/helpers.ts
 partykit.json              production parties: main, challenge, solo
-partykit.e2e.json          test parties: main -> party/e2e/main-test.ts, solo -> fixed answer
+partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer
 ```
 
 ## 4. Runtime architecture
@@ -92,14 +95,16 @@ Server is authoritative. The client sends intents and renders what the server re
 - **Create room:** browser `POST {host}/parties/main/<CODE>` (cross-origin, so `http.ts` sends CORS headers). 201 = ours, 409 = taken (client retries a new code, max 5), 400 = bad code. Then navigate to `/woordle/room/<CODE>`.
 - **Join:** name form -> `connectRoom()` opens a socket, sends `join {playerId, name}` on every open -> server replies `lobby` (one message per seat, each with that player's `youId`) -> `useRoom` store -> `Lobby` UI. Any `error` message makes the client close the socket.
 - **Solo guess:** `guess {word}` -> server trims/lowercases, checks the guess list, `scoreGuess`, replies `guessResult` (+ `soloEnd {won, answer}` on the last one).
-- **Not built yet:** `start`, `roundStart`, in-room `guess`, `roundEnd`, `matchEnd`, `playAgain` (Phase 3).
+- **Match:** host `start` -> room sets phase `match`, sends `lobby{phase:"match"}`, then the game sends `roundStart`. Each `guess` goes through `game.parseAction`, then `onAction`: `guessResult` to the sender, `opponentProgress` (colours only) to the others. A round ends at `endsAt` (a timer the game scheduled) or as soon as every connected player is done; `roundEnd` carries the answer. After 5 s the next `roundStart`, or after round 5 `matchEnd`. Host `playAgain` returns everyone to the lobby.
+- **Timers:** the game schedules *actions* (`endRound`, `nextRound`, `finish`) through `ctx.schedule`; the room delivers them as `onAction` with sender `SYSTEM`, tracks every pending timer, and cancels them when a match is abandoned. The adapter passes `Date.now`/`setTimeout`; tests pass `tests/helpers/fake-clock.ts`.
+- **Client:** `room-client.ts` sends `lobby`/`error` to `useRoom` and everything else to `useMatch`; a `lobby` with `phase:"lobby"` resets the match store. The timer display uses an offset estimated at each `roundStart` (display only).
 
 ## 5. Protocol cheat sheet (truth: `shared/protocol.ts`)
 
 | Direction | Room (party `main`) | Solo (party `solo`) |
 | --- | --- | --- |
-| Client -> server | `join {playerId, name}`, `settings {roundSeconds: 120/180/300}` | `guess {word}`, `newGame` |
-| Server -> client | `lobby {players[{id,name,isHost,connected}], roundSeconds, youId}`, `error {code}` | `soloStart`, `guessResult`, `guessRejected {reason}`, `soloEnd {won, answer}` |
+| Client -> server | `join {playerId, name}`, `settings {roundSeconds: 120/180/300}`, `start`, `guess {word}`, `playAgain` | `guess {word}`, `newGame` |
+| Server -> client | `lobby {players[{id,name,isHost,connected}], roundSeconds, youId, phase}`, `error {code}`, `roundStart {round, totalRounds, startedAt, endsAt, players}`, `guessResult {word, colours, solvedMs}`, `guessRejected`, `opponentProgress {id, rows, solvedMs}`, `roundEnd {round, answer, winnerId, results, nextAt}`, `matchEnd {ranking}` | `soloStart`, `guessResult`, `guessRejected {reason}`, `soloEnd {won, answer}` |
 
 Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `invalid-name`. Change `shared/protocol.ts` first, then server, then client.
 
@@ -111,9 +116,11 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 - 5 seats max; 6th gets `room-full`. 10 open sockets max per room. Frames over 512 chars and anything before a valid `join` are dropped.
 - Names: trimmed, whitespace collapsed, control chars stripped, 20 chars, needs a letter/digit/emoji; duplicates get " 2", " 3" (case-insensitive).
 - Same `playerId` joining again takes the seat (newest wins); old connection gets `replaced`.
-- Phase `lobby | match`: only the e2e test hook can set `match` until Phase 3. Unknown players in `match` get `match-in-progress`.
+- Phase `lobby | match`. `start` (host, lobby, 1+ players) enters `match`; it lasts through the results screen until the host's `playAgain` (only valid once the game finished). New players in `match` get `match-in-progress`. If everyone leaves mid-match the room resets to the lobby and cancels its timers.
+- Anything the room does not own (`join`, `settings`, `start`, `playAgain`) is handed to the game's `parseAction`; `null` means dropped.
 - `settings`: host only, lobby only, 120/180/300 only.
-- **Interim until Phase 5:** a dropped player is removed immediately (no 60 s hold), so a refresh can lose the seat.
+- **Interim until Phase 5:** a dropped player is removed immediately (no 60 s hold), so a refresh mid-match puts that player out of it (they stay on the roster as "Left" and in the ranking, with unsolved rounds at the full limit).
+- Ranking: rounds won, then total time (unsolved = full limit), ties share a rank, dense numbering (1, 1, 2).
 - The room "exists" only after `create()` (the POST). Sockets to an uncreated room get `room-not-found`.
 
 ## 7. Design tokens (enforced by `tests/design-tokens.test.ts`)
@@ -134,7 +141,7 @@ npm run test:e2e       # Playwright; starts its own servers, STOP npm run dev FI
 npm run build && npm run check:bundle   # word data must not reach .next/static
 ```
 
-- e2e runs `partykit dev -c partykit.e2e.json`: solo answers are always `crane`; the room server accepts `{type:"__setPhase"}` so tests can put a room into the match phase. Players are separate browser contexts (separate `sessionStorage`).
+- e2e runs `partykit dev -c partykit.e2e.json`: solo answers are always `crane`; rooms play `crane, slate, robot, moist, light` with round limits at 1% (a 2 min round is 1.2 s, 5 min is 3 s) and a 1.5 s pause between rounds. Players are separate browser contexts (separate `sessionStorage`). Durations come from `party/e2e/answers.ts`, injected through `createWoordleGame`.
 - `check:bundle` samples the first/middle/last 3-word runs of each list; it catches a shipped list, not a stray fragment.
 - Before declaring work done: lint + `npm test`; add `test:e2e` for room/protocol/Challenge changes; add `build && check:bundle` when touching `src/` imports or word data.
 
@@ -154,6 +161,10 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | Client ignores keys while a guess is in flight | Playwright helpers wait for the server's row before the next word |
 | `next dev` rewrites `AGENTS.md` | It tells you to read `node_modules/next/dist/docs/` before Next code; this is Next 16, APIs differ from older versions |
 | Vitest config is `.mts` | Plain `.ts` triggers a CJS-loader warning |
+| A time scale must not shrink the pause between rounds | It is a UI pause; scaling it made the summary last 3 ms and invisible to tests. Only round limits scale |
+| e2e frame recorders see Next's dev hot-reload socket too | Record only sockets whose URL contains `/parties/` before parsing frames as JSON |
+| Assert on data, not on a 300 ms window | Playwright polls at 100 to 1000 ms; keep the e2e pause long enough to observe, or assert from recorded frames |
+| Mutation-check a new guard | Plant the bug (a late guess accepted, an answer in `roundStart`) and confirm the test fails, then restore |
 
 ## 10. Do not read (token cost, chars / 4 ≈ tokens)
 
@@ -166,6 +177,7 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | `.claude/Docs/Project Overview Spec.md` | 7,600 | grep the section: 2.4 contract, 2.5 protocol, 2.6 scoring, 2.7 token, 5.x edge cases |
 | `.claude/Plans/phase-1-woordle-core.md` | 7,900 | its "Gaps" table |
 | `.claude/Plans/phase-2-rooms.md` | 6,200 | its "Gaps" table |
+| `.claude/Plans/phase-3-time-race.md` | 5,723 | its "Gaps" table |
 | `.claude/Docs/Browser Games Project Idea.md` | 2,500 | read-only, superseded by the Spec |
 | `node_modules/`, `.next/`, `.partykit/`, `test-results/` | - | generated |
 

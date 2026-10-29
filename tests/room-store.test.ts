@@ -9,6 +9,7 @@ const lobby = {
   ],
   roundSeconds: 300,
   youId: "b2",
+  phase: "lobby",
 } as const;
 
 beforeEach(() => useRoom.getState().reset());
@@ -28,6 +29,13 @@ describe("room store", () => {
     useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
     expect(useRoom.getState()).toMatchObject({ status: "joined", roundSeconds: 300, youId: "b2" });
     expect(useRoom.getState().players.map((p) => p.name)).toEqual(["Ali", "Bo"]);
+  });
+
+  test("the room phase follows the lobby message", () => {
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players], phase: "match" });
+    expect(useRoom.getState().phase).toBe("match");
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    expect(useRoom.getState().phase).toBe("lobby");
   });
 
   test("each lobby replaces the last instead of merging", () => {

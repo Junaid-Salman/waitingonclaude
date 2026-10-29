@@ -22,3 +22,7 @@ Create `.env` with `CHALLENGE_KEY` (`openssl rand -base64 32`) and `.env.local` 
 ## Rooms
 
 `POST /parties/main/<CODE>` creates a room: `201` the first time, `409` while a live room holds the code, `400` for a malformed code. Codes are four letters from `ABCDEFGHJKMNPQRSTUVWXYZ`. Rooms live in memory and disappear when the last player leaves.
+
+## Playing a match
+
+Create a room, share the link, and the host picks a round length (2, 3 or 5 minutes) and presses Start. Five rounds are played against a server-controlled clock: the first player to solve a round wins it, a round ends early when everyone is done, and opponents' boards show colours only. After round 5 players are ranked by rounds won, then total time (an unsolved round counts as the full limit); players who tie share a rank. The host can send everyone back to the lobby with Play again.

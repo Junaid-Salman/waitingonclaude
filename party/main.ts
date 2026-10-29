@@ -1,12 +1,29 @@
 import type * as Party from "partykit/server";
-import { handleRoomRequest } from "./room/http";
+import { getGame } from "./games";
+import type { GameDefinition } from "./games/types";
 import { applyEffects } from "./room/apply";
-import { createRoom, type Effect } from "./room/room";
+import { handleRoomRequest } from "./room/http";
+import { createRoom, realClock, type Effect } from "./room/room";
+
+export interface RoomServerOptions {
+  // Defaults to the registered Woordle game. The e2e server passes one with fixed answers and a
+  // time scale.
+  game?: GameDefinition<unknown, unknown, unknown>;
+}
 
 // Thin PartyKit adapter. All rules live in party/room/room.ts.
-export function createRoomServer(opts: { testHooks?: boolean } = {}) {
+export function createRoomServer(opts: RoomServerOptions = {}) {
+  const found = opts.game ?? getGame("woordle");
+  if (!found) throw new Error("woordle game is not registered");
+  const game: GameDefinition<unknown, unknown, unknown> = found;
+
   return class RoomServer implements Party.Server {
-    private room = createRoom({ testHooks: opts.testHooks });
+    private room = createRoom({
+      game,
+      clock: realClock,
+      // Timers fire outside any message handler, so their effects are applied here.
+      emit: (effects) => this.apply(effects),
+    });
 
     constructor(readonly party: Party.Room) {}
 

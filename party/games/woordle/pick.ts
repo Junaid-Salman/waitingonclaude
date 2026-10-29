@@ -16,3 +16,14 @@ export function pickAnswer(answers: readonly string[], used: Set<string>, rng: R
   used.add(word);
   return word;
 }
+
+// `count` different answers, uniformly at random (partial Fisher-Yates over a copy).
+export function pickDistinct(answers: readonly string[], count: number, rng: Rng = cryptoRng): string[] {
+  if (count > answers.length) throw new Error("not enough answers");
+  const pool = [...answers];
+  for (let i = 0; i < count; i++) {
+    const j = i + Math.floor(rng() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}

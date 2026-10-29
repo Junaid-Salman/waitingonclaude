@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ROUND_SECONDS_OPTIONS, type LobbyPlayer, type RoundSeconds } from "../../../shared/protocol";
 import {
+  buttonClasses,
   focusClasses,
   hostBadgeClasses,
   inputClasses,
@@ -17,11 +18,12 @@ interface Props {
   youId: string | null;
   roundSeconds: number;
   onRoundSeconds(seconds: RoundSeconds): void;
+  onStart(): void;
 }
 
 const minutes = (seconds: number) => `${seconds / 60} min`;
 
-export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds }: Props) {
+export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onStart }: Props) {
   const [copied, setCopied] = useState(false);
   const isHost = players.some((p) => p.isHost && p.id === youId);
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/woordle/room/${code}`;
@@ -94,7 +96,13 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds }: Pr
         )}
       </section>
 
-      <p className="regular-text-sm text-muted">Waiting for the host to start the match.</p>
+      {isHost ? (
+        <button type="button" onClick={onStart} className={`semibold-text-md self-start rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
+          Start match
+        </button>
+      ) : (
+        <p className="regular-text-sm text-muted">Waiting for the host to start the match.</p>
+      )}
     </div>
   );
 }

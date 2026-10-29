@@ -96,28 +96,37 @@ Every game implements one interface. The room layer owns players, host, timing p
 
 ```ts
 // party/games/types.ts
-import type { PlayerId, RoomPlayer } from "../room/types";
+import type { RoomServerMessage } from "../../shared/protocol";
+import type { PublicId, RoomPlayer } from "../room/types";
 
-export interface GameContext {
+export const SYSTEM = "system" as const; // sender of actions the game scheduled for itself
+export type Sender = PublicId | typeof SYSTEM;
+
+export interface GameContext<Action> {
   now(): number;
-  schedule(delayMs: number, callback: () => void): void;
-  sendTo(playerId: PlayerId, message: unknown): void;
-  broadcast(message: unknown): void;
+  // Delivers `action` to onAction with sender SYSTEM after delayMs. Returns a cancel function.
+  schedule(delayMs: number, action: Action): () => void;
+  sendTo(id: PublicId, message: RoomServerMessage): void;
+  broadcast(message: RoomServerMessage): void;
+  broadcastExcept(id: PublicId, message: RoomServerMessage): void;
 }
 
 export interface GameDefinition<State, Settings, Action> {
   id: string;
   defaultSettings: Settings;
-  validateSettings(input: unknown): Settings;
-  createState(players: RoomPlayer[], settings: Settings, ctx: GameContext): State;
-  onAction(state: State, playerId: PlayerId, action: Action, ctx: GameContext): State;
-  onPlayerLeave(state: State, playerId: PlayerId, ctx: GameContext): State;
-  viewFor(state: State, playerId: PlayerId): unknown;
+  validateSettings(input: unknown): Settings; // throws on invalid input
+  parseAction(input: unknown): Action | null; // validates one untrusted client message
+  createState(players: RoomPlayer[], settings: Settings, ctx: GameContext<Action>): State;
+  onAction(state: State, sender: Sender, action: Action, ctx: GameContext<Action>): State;
+  onPlayerLeave(state: State, id: PublicId, ctx: GameContext<Action>): State;
+  viewFor(state: State, id: PublicId): unknown;
   isFinished(state: State): boolean;
 }
 ```
 
-`viewFor` is the fairness boundary: it returns only what that player may see (own letters, opponents' colours, never the answer before round end).
+Games only ever see **public** ids; the room maps them to connections and never passes the secret `playerId` across this boundary. `parseAction` is where a game treats client input as hostile: the room forwards any message it does not own (`join`, `settings`, `start`, `playAgain`) and drops it when `parseAction` returns `null`. Internal actions (a round timer firing) are scheduled through `ctx.schedule` and arrive with sender `SYSTEM`; `parseAction` never produces them, so a client cannot forge one. The room tracks every pending timer and cancels them when a match is abandoned. A game's state is owned by the game: handlers mutate it and return it.
+
+`viewFor` is the fairness boundary: it returns only what that player may see (own letters, opponents' colours, never the answer before round end). In Phase 3 it is implemented and tested but not sent; Phase 5 uses it to restore a board after a refresh. It shares one helper with `opponentProgress`, so the two cannot disagree.
 
 ### 2.5 Message Protocol
 
@@ -133,17 +142,23 @@ export type ClientMessage =
   | { type: "playAgain" };
 
 export type ServerMessage =
-  | { type: "lobby"; players: { id: string; name: string; isHost: boolean; connected: boolean }[]; roundSeconds: number; youId: string }
-  | { type: "roundStart"; round: number; startedAt: number; endsAt: number }
-  | { type: "guessResult"; word: string; colours: TileColour[] }
+  // `phase` stays "match" from Start until the host sends playAgain (results screen included).
+  | { type: "lobby"; players: { id: string; name: string; isHost: boolean; connected: boolean }[]; roundSeconds: number; youId: string; phase: "lobby" | "match" }
+  // startedAt is the server clock when the round began; players is the whole roster, leavers included.
+  | { type: "roundStart"; round: number; totalRounds: number; startedAt: number; endsAt: number; players: { id: string; name: string }[] }
+  // solvedMs is set only on the guess that solved the round.
+  | { type: "guessResult"; word: string; colours: TileColour[]; solvedMs: number | null }
   | { type: "guessRejected"; reason: "not-a-word" | "rate-limited" | "round-over" | "no-guesses-left" }
-  | { type: "opponentProgress"; playerId: string; rows: TileColour[][]; solvedMs: number | null }
-  | { type: "roundEnd"; round: number; answer: string; winnerId: string | null }
-  | { type: "matchEnd"; ranking: { playerId: string; name: string; roundsWon: number; totalMs: number; rank: number }[] }
+  // Colours only, sent to everyone except the player it describes.
+  | { type: "opponentProgress"; id: string; rows: TileColour[][]; solvedMs: number | null }
+  // The only message that carries the answer. nextAt is the server time of the next roundStart
+  // (or of matchEnd after round 5).
+  | { type: "roundEnd"; round: number; answer: string; winnerId: string | null; results: { id: string; solvedMs: number | null; guesses: number }[]; nextAt: number }
+  | { type: "matchEnd"; ranking: { id: string; name: string; roundsWon: number; totalMs: number; rank: number }[] }
   | { type: "error"; code: "room-full" | "room-not-found" | "match-in-progress" | "replaced" | "invalid-name" };
 ```
 
-**Secret and public ids.** `playerId` in `join` is a secret the client generates and the server never sends back. Every `id` and `playerId` field in a server message (the `lobby` entries, `opponentProgress`, `matchEnd`) is a separate public id the server assigns to each seat (8 random hex characters). `lobby.youId` tells a client which entry is its own, so the lobby message is sent per recipient. Without this split, the lobby would hand every player every other player's seat credential.
+**Secret and public ids.** `playerId` in `join` is a secret the client generates and the server never sends back. Every `id` field in a server message (the `lobby` entries, `roundStart.players`, `opponentProgress`, `roundEnd.results`, `matchEnd`) is a separate public id the server assigns to each seat (8 random hex characters). `lobby.youId` tells a client which entry is its own, so the lobby message is sent per recipient. Without this split, the lobby would hand every player every other player's seat credential.
 
 Solo subset (Phase 1, party `solo`; defined in `shared/protocol.ts` as `SoloClientMessage` and `SoloServerMessage`):
 
@@ -250,10 +265,10 @@ Token size: about 60 bytes of JSON plus 12 bytes IV plus 16 bytes tag, roughly 1
 2. Host lands on `/woordle/room/<CODE>`, enters a name, and the client opens a WebSocket to room `<CODE>` with `{ type: "join", playerId, name }`. `playerId` is `crypto.randomUUID()` stored in `sessionStorage`, with the name and the room code so a refresh re-joins without a prompt. The room-creation `POST` is cross-origin from the Vercel page, and PartyKit adds no CORS headers, so the room server answers `OPTIONS` and sends `Access-Control-Allow-Origin: *` itself (no cookies or credentials are involved).
 3. Friends open the link, join with a name. The server suffixes duplicates ("Ali", "Ali 2") and rejects the 6th player with `room-full`. While a match runs, the server rejects any new `playerId` with `match-in-progress`; that player retries once the room is back in the lobby.
 4. Host picks 2, 3, or 5 minutes per round (default 3) and sends `start`. Start is enabled with 1 or more players, so solo practice works.
-5. For each of 5 rounds, the server picks an unused answer, stamps `startedAt`, broadcasts `roundStart`, and schedules the round end at `startedAt + roundSeconds`.
-6. Each `guess` hits the server: rate limit check, word-list check, `scoreGuess`, reply with `guessResult` to the sender and `opponentProgress` (colours only) to everyone. The first solve wins the round; every solve records `serverNow - startedAt`.
-7. The round ends at the time limit, or earlier as soon as every seated player has solved or used all 6 guesses. A seated player inside the reconnect grace window counts as still playing. The server broadcasts `roundEnd` with the answer, then waits 5 seconds before the next round.
-8. After round 5, the server broadcasts `matchEnd`: rank by rounds won, ties broken by cumulative time, an unsolved round counts as the full time limit. The host can send `playAgain` to return everyone to the lobby.
+5. When the match is created the server picks five different answers. Round 1 starts at once; for each round the server stamps `startedAt`, broadcasts `roundStart` (with the roster and `totalRounds`), and schedules the round end at `startedAt + roundSeconds`. The room sends a `lobby` message with `phase: "match"` just before the first `roundStart`.
+6. Each `guess` hits the server: rate limit check, word-list check, `scoreGuess`, reply with `guessResult` to the sender and `opponentProgress` (colours only) to every other player. The first solve wins the round; every solve records `serverNow - startedAt`. A guess at or after `endsAt` is `round-over` even if the round timer has not fired yet.
+7. The round ends at the time limit, or earlier as soon as every seated player has solved or used all 6 guesses. A seated player inside the reconnect grace window counts as still playing. The server broadcasts `roundEnd` with the answer, per-player results and `nextAt`, then waits 5 seconds before the next round; guesses are rejected during the pause.
+8. After round 5 and the same 5 second pause, the server broadcasts `matchEnd`: rank by rounds won, ties broken by cumulative time, an unsolved round counts as the full time limit, players equal on both share a rank and the next rank follows (1, 1, 2). The room stays in the `match` phase on the results screen. The host can then send `playAgain` to return everyone to the lobby with the same players.
 
 **Challenge**
 
@@ -501,6 +516,9 @@ npm run party:deploy
 | Seated player disconnects | Seat held 60 seconds and counts toward the 5-player cap; on expiry the seat is removed and the player is treated as new (blocked until the match ends). A removed player stays in the final ranking, with every unsolved round counted as full time |
 | Seated player in grace when everyone else is done | Round does not end early; it waits for the grace to expire or the time limit |
 | Host leaves | Host passes to the earliest-joined connected player when the host's grace expires, or at once on an explicit leave |
+| Player leaves mid-match (Phase 3, until Phase 5 adds the 60 s hold) | Removed at once. They stay on the roster as "Left" and in the final ranking, and every round they did not solve counts as the full time limit. The round ends early if everyone remaining is done |
+| Everyone leaves mid-match | The room returns to the lobby phase and cancels its timers, so a stale match cannot block the code |
+| Results screen | The room stays in the `match` phase until the host sends `playAgain`; new players are still blocked. Any player who becomes host can send it |
 | Same link in two tabs | `sessionStorage` is per tab, so each tab is a separate player; both count toward the cap |
 | Same `playerId` joins again (a refresh whose old socket has not closed yet, or Chrome's "Duplicate tab", which copies `sessionStorage`) | The newest connection takes the seat and keeps its name, host flag and join order. The old connection receives `error: replaced` and is closed, and the page offers "Use this tab". A late close from the old connection is ignored |
 | Unusable name | Names are trimmed, whitespace-collapsed, stripped of control and invisible characters, and capped at 20 characters. A name needs a letter, digit or emoji, otherwise `invalid-name`. Duplicate matching ignores case and skips suffixes already taken |
@@ -511,10 +529,11 @@ npm run party:deploy
 
 | Case | Rule |
 | --- | --- |
-| Client clock skew | Client renders from `endsAt` minus a server offset measured at join; the server decides |
-| Guess arrives after `endsAt` | Reject with `round-over` |
+| Client clock skew | Client renders from `endsAt` minus a server offset, estimated at every `roundStart` as `startedAt` minus the client clock at receipt (off by one network trip at most); display only, the server decides |
+| Guess arrives after `endsAt` | Reject with `round-over`, even if the round timer has not fired yet |
+| Guess during the 5 s pause | Reject with `round-over`, so a delayed guess can never land in the next round |
 | Two solves in the same millisecond | Earlier message processed wins; Durable Objects process messages serially |
-| Exact tie on rounds won and total time | Shared rank |
+| Exact tie on rounds won and total time | Shared rank; dense numbering, so the next rank is one higher (1, 1, 2) |
 | `setTimeout` lost on eviction | Only happens when the room is empty, so no live player is affected |
 
 ### 5.4 Security and Hosting
@@ -539,7 +558,11 @@ npm run party:deploy
 | Word lists | SCOWL (answers size 35, guesses size 70), LDNOOBW blocklist |
 | Second game | Post-MVP |
 | Rate limits | 2 guesses per second per player; 30 messages per 10 seconds per connection |
-| Gap between rounds | 5 seconds |
+| Gap between rounds | 5 seconds, also before `matchEnd` after round 5 |
+| Tie numbering | Dense: players equal on rounds won and total time share a rank and the next rank follows (1, 1, 2) |
+| Round 1 start | Immediately on Start, no countdown |
+| Answers per match | Five different answers picked when the match is created |
+| Solo party | Kept as an untimed practice mode; a 1-player room is a timed race |
 | Analytics | None |
 | Vercel subdomain | `waitingonclaude.vercel.app`, fallback `waitingonclaude-game.vercel.app` |
 | Product names | Keep WaitingOnClaude and Woordle with the footer disclaimer |

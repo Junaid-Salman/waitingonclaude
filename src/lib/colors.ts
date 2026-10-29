@@ -129,3 +129,13 @@ export const hostBadgeClasses = "bg-tile-present text-tile-present-fg";
 export const youBadgeClasses = "bg-key-idle text-foreground";
 export const inputClasses = "border-tile-border bg-background text-foreground";
 export const focusClasses = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tile-correct";
+
+export const solvedBadgeClasses = "bg-tile-correct text-tile-correct-fg";
+
+// Opponents' boards are shown as small colour-only cells: no letters, ever.
+export const miniTileClassesByColour: Record<TileColour, string> = {
+  green: "bg-tile-correct",
+  yellow: "bg-tile-present",
+  grey: "bg-tile-absent",
+};
+export const miniTileEmptyClasses = "border border-tile-border/40";

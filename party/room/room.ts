@@ -3,14 +3,17 @@ import {
   MAX_PLAYERS,
   ROUND_SECONDS_OPTIONS,
   type RoomErrorCode,
+  type RoomPhase,
   type RoomServerMessage,
   type RoundSeconds,
 } from "../../shared/protocol";
+import { SYSTEM, type GameContext, type GameDefinition, type Sender } from "../games/types";
 import { cleanName, uniqueName } from "./names";
 import type { PlayerId, PublicId } from "./types";
 
 // Pure room rules with no PartyKit imports, so they port to Cloudflare Workers and unit-test
 // without sockets. The adapter in party/main.ts turns effects into real sends and closes.
+// The room owns players, host, phases and timers; the game owns what happens inside a match.
 
 export type Effect =
   | { kind: "send"; to: string; message: RoomServerMessage }
@@ -22,6 +25,20 @@ export const CLOSE_CODES = { rejected: 4000, replaced: 4001 } as const;
 const MAX_FRAME_CHARS = 512;
 const PLAYER_ID_PATTERN = /^[\w-]{8,64}$/;
 
+export interface Clock {
+  now(): number;
+  // Runs `fn` after `ms`; the returned function cancels it.
+  setTimer(ms: number, fn: () => void): () => void;
+}
+
+export const realClock: Clock = {
+  now: () => Date.now(),
+  setTimer(ms, fn) {
+    const handle = setTimeout(fn, ms);
+    return () => clearTimeout(handle);
+  },
+};
+
 interface Seat {
   playerId: PlayerId;
   publicId: PublicId;
@@ -31,11 +48,13 @@ interface Seat {
 }
 
 export interface RoomOptions {
+  game: GameDefinition<unknown, unknown, unknown>;
+  clock?: Clock;
+  // Receives effects produced outside a message handler, such as a round timer firing.
+  emit?: (effects: Effect[]) => void;
   maxPlayers?: number;
   maxSockets?: number;
   newPublicId?: () => PublicId;
-  // Accepts one extra message that flips the room phase. Only the e2e server turns this on.
-  testHooks?: boolean;
 }
 
 export interface Room {
@@ -47,20 +66,26 @@ export interface Room {
 
 const randomPublicId = () => crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 
-export function createRoom(options: RoomOptions = {}): Room {
+export function createRoom(options: RoomOptions): Room {
+  const { game } = options;
   const maxPlayers = options.maxPlayers ?? MAX_PLAYERS;
   const maxSockets = options.maxSockets ?? 10;
   const newPublicId = options.newPublicId ?? randomPublicId;
+  const clock = options.clock ?? realClock;
+  const emit = options.emit ?? (() => {});
 
   let created = false;
-  // Interim until Phase 3 adds matches: only the e2e hook ever sets "match".
-  let phase: "lobby" | "match" = "lobby";
+  // "match" lasts from Start until the host sends Play again, results screen included.
+  let phase: RoomPhase = "lobby";
+  let matchState: unknown = null;
   let roundSeconds: RoundSeconds = DEFAULT_ROUND_SECONDS;
   let nextJoinSeq = 0;
 
   // Every open socket; `playerId` is set once the socket holds a seat.
   const sockets = new Map<string, { playerId: PlayerId | null }>();
   const seats = new Map<PlayerId, Seat>();
+  // Cancel functions for the game's pending timers, so abandoning a match leaves none behind.
+  const timers = new Set<() => void>();
 
   const send = (to: string, message: RoomServerMessage): Effect => ({ kind: "send", to, message });
   const reject = (connId: string, code: RoomErrorCode): Effect[] => {
@@ -80,7 +105,55 @@ export function createRoom(options: RoomOptions = {}): Room {
       isHost: s === host,
       connected: true,
     }));
-    return ordered().map((s) => send(s.connId, { type: "lobby", players, roundSeconds, youId: s.publicId }));
+    return ordered().map((s) => send(s.connId, { type: "lobby", players, roundSeconds, youId: s.publicId, phase }));
+  }
+
+  function cancelTimers() {
+    for (const cancel of [...timers]) cancel();
+    timers.clear();
+  }
+
+  function backToLobby() {
+    cancelTimers();
+    phase = "lobby";
+    matchState = null;
+  }
+
+  // What the room lends the game. Games only ever see public ids.
+  function makeContext(out: Effect[]): GameContext<unknown> {
+    const sendToSeats = (skip: PublicId | null, message: RoomServerMessage) => {
+      for (const s of ordered()) if (s.publicId !== skip) out.push(send(s.connId, message));
+    };
+    return {
+      now: () => clock.now(),
+      schedule(delayMs, action) {
+        let stop: () => void = () => {};
+        const cancel = () => {
+          stop();
+          timers.delete(cancel);
+        };
+        stop = clock.setTimer(delayMs, () => {
+          timers.delete(cancel);
+          emit(act(SYSTEM, action));
+        });
+        timers.add(cancel);
+        return cancel;
+      },
+      sendTo(id, message) {
+        const seat = ordered().find((s) => s.publicId === id);
+        if (seat) out.push(send(seat.connId, message));
+      },
+      broadcast: (message) => sendToSeats(null, message),
+      broadcastExcept: (id, message) => sendToSeats(id, message),
+    };
+  }
+
+  // Delivers one action to the running match and returns what the game wanted to send.
+  function act(sender: Sender, action: unknown): Effect[] {
+    if (phase !== "match" || matchState === null) return [];
+    const out: Effect[] = [];
+    matchState = game.onAction(matchState, sender, action, makeContext(out));
+    return out;
   }
 
   function join(connId: string, playerId: PlayerId, rawName: string): Effect[] {
@@ -167,20 +240,47 @@ export function createRoom(options: RoomOptions = {}): Room {
 
       // Everything else needs a seat first.
       const seat = socket.playerId ? seats.get(socket.playerId) : undefined;
-
-      if (options.testHooks && msg.type === "__setPhase" && (msg.phase === "lobby" || msg.phase === "match")) {
-        phase = msg.phase;
-        return [];
-      }
+      if (!seat) return [];
+      const isHost = seat === hostSeat();
 
       if (msg.type === "settings") {
-        if (!seat || seat !== hostSeat() || phase !== "lobby") return [];
+        if (!isHost || phase !== "lobby") return [];
         if (!ROUND_SECONDS_OPTIONS.includes(msg.roundSeconds as RoundSeconds)) return [];
         roundSeconds = msg.roundSeconds as RoundSeconds;
         return broadcastLobby();
       }
 
-      return [];
+      if (msg.type === "start") {
+        if (!isHost || phase !== "lobby") return [];
+        const players = ordered().map((s) => ({ id: s.publicId, name: s.name, isHost: s === seat, connected: true }));
+        let settings: unknown;
+        try {
+          settings = game.validateSettings({ roundSeconds });
+        } catch {
+          return [];
+        }
+        phase = "match";
+        // The lobby message flips every client to the match view before the game's first message.
+        const out = broadcastLobby();
+        matchState = game.createState(players, settings, makeContext(out));
+        return out;
+      }
+
+      if (msg.type === "playAgain") {
+        if (!isHost || phase !== "match" || matchState === null || !game.isFinished(matchState)) return [];
+        backToLobby();
+        return broadcastLobby();
+      }
+
+      // Anything else is the game's business, and the game decides whether it is valid.
+      if (phase !== "match") return [];
+      let action: unknown;
+      try {
+        action = game.parseAction(msg);
+      } catch {
+        action = null;
+      }
+      return action === null ? [] : act(seat.publicId, action);
     },
 
     // Interim behaviour until Phase 5: a dropped player leaves at once and host passes to the
@@ -192,7 +292,14 @@ export function createRoom(options: RoomOptions = {}): Room {
       const seat = seats.get(socket.playerId);
       if (!seat || seat.connId !== connId) return []; // replaced earlier; the seat lives on
       seats.delete(socket.playerId);
-      return broadcastLobby();
+
+      const out = broadcastLobby();
+      if (phase === "match" && matchState !== null) {
+        // Nobody left to watch: drop the match so the next arrival finds a lobby, not a stale one.
+        if (seats.size === 0) backToLobby();
+        else matchState = game.onPlayerLeave(matchState, seat.publicId, makeContext(out));
+      }
+      return out;
     },
   };
 }

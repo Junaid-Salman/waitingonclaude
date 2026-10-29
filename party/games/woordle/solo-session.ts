@@ -1,4 +1,4 @@
-import { SOLO_MAX_GUESSES, type SoloServerMessage } from "../../../shared/protocol";
+import { MAX_GUESSES, type SoloServerMessage } from "../../../shared/protocol";
 import { createBoard, submitGuess, type Board } from "./board";
 
 // Inbound frames are tiny ({"type":"guess","word":"crane"}); anything larger is hostile.
@@ -33,7 +33,7 @@ export function createSoloSession({ pickAnswer }: { pickAnswer: () => string }):
 
   return {
     start() {
-      return [{ type: "soloStart", maxGuesses: SOLO_MAX_GUESSES }];
+      return [{ type: "soloStart", maxGuesses: MAX_GUESSES }];
     },
 
     handle(raw) {
@@ -43,7 +43,7 @@ export function createSoloSession({ pickAnswer }: { pickAnswer: () => string }):
       if (message.type === "newGame") {
         if (board.status === "playing") return [];
         board = createBoard(pickAnswer());
-        return [{ type: "soloStart", maxGuesses: SOLO_MAX_GUESSES }];
+        return [{ type: "soloStart", maxGuesses: MAX_GUESSES }];
       }
 
       const { board: next, outcome } = submitGuess(board, message.word);

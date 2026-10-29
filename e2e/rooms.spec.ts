@@ -1,51 +1,8 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { createRoom, enterName, joinRoom, newPlayer, playerNames } from "./helpers";
 
-// Runs against partykit.e2e.json, whose room server accepts `__setPhase` (party/e2e/main-test.ts).
+// Runs against partykit.e2e.json: the production room rules with fixed answers and short rounds.
 const PARTY_WS = "ws://localhost:1999/parties/main";
-
-async function newPlayer(browser: Browser): Promise<Page> {
-  // A separate context has its own sessionStorage, so it is a separate player.
-  return (await browser.newContext()).newPage();
-}
-
-async function enterName(page: Page, name: string) {
-  await page.getByLabel("Your name").fill(name);
-  await page.getByRole("button", { name: "Join" }).click();
-}
-
-async function createRoom(page: Page, name: string): Promise<string> {
-  await page.goto("/woordle");
-  await page.getByRole("button", { name: "Create room" }).click();
-  await page.waitForURL(/\/woordle\/room\/[A-Z]{4}$/);
-  const code = page.url().split("/").pop()!;
-  await enterName(page, name);
-  await expect(page.getByRole("heading", { name: `Room ${code}` })).toBeVisible();
-  return code;
-}
-
-async function joinRoom(page: Page, code: string, name: string) {
-  await page.goto(`/woordle/room/${code}`);
-  await enterName(page, name);
-}
-
-const playerNames = (page: Page) => page.getByTestId("player").locator("span.min-w-0").allTextContents();
-
-// Opens a bare socket to the test room server and sends one raw message.
-async function rawSend(code: string, message: unknown): Promise<string[]> {
-  const received: string[] = [];
-  const ws = new WebSocket(`${PARTY_WS}/${code}`);
-  ws.onmessage = (event) => received.push(String(event.data));
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    ws.onerror = () => reject(new Error("socket failed"));
-  });
-  ws.send(JSON.stringify(message));
-  await new Promise((resolve) => setTimeout(resolve, 300));
-  ws.close();
-  return received;
-}
-
-const setPhase = (code: string, phase: "lobby" | "match") => rawSend(code, { type: "__setPhase", phase });
 
 test("create a room: the host lands in the lobby with a code and a Host badge", async ({ page }) => {
   const code = await createRoom(page, "Ali");
@@ -132,20 +89,16 @@ test("a lowercase link works", async ({ browser }) => {
   await expect.poll(() => playerNames(host)).toEqual(["Ali", "Bo"]);
 });
 
-test("match in progress blocks newcomers until the room is back in the lobby", async ({ browser }) => {
+test("a newcomer is turned away while a match is running", async ({ browser }) => {
   const host = await newPlayer(browser);
   const code = await createRoom(host, "Ali");
-  await setPhase(code, "match");
+  await host.getByRole("button", { name: "Start match" }).click();
+  await expect(host.getByTestId("round-label")).toHaveText("Round 1 of 5");
 
   const late = await newPlayer(browser);
   await joinRoom(late, code, "Bo");
   await expect(late.getByRole("heading", { name: "Match in progress" })).toBeVisible();
-  await expect(host.getByTestId("player")).toHaveCount(1);
-
-  await setPhase(code, "lobby");
-  await late.getByRole("button", { name: "Try again" }).click();
-  await expect(late.getByRole("heading", { name: `Room ${code}` })).toBeVisible();
-  await expect.poll(() => playerNames(host)).toEqual(["Ali", "Bo"]);
+  await expect(late.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
 test("when the host leaves, host passes to the next player", async ({ browser }) => {

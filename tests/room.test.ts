@@ -1,16 +1,28 @@
 import { describe, expect, test } from "vitest";
 import type { RoomServerMessage } from "../shared/protocol";
+import { createWoordleGame } from "../party/games/woordle/game";
 import { createRoom, type Effect, type Room } from "../party/room/room";
+import { createFakeClock } from "./helpers/fake-clock";
+import { testGame } from "./helpers/game";
 
 const join = (playerId: string, name: string) => JSON.stringify({ type: "join", playerId, name });
 const pid = (n: number) => `player-id-${n}-secret`;
 
-function setup(options: Parameters<typeof createRoom>[0] = {}) {
+const ANSWERS = ["crane", "slate", "robot", "moist", "light"];
+
+function setup(options: Partial<Parameters<typeof createRoom>[0]> = {}) {
   let n = 0;
-  const room = createRoom({ newPublicId: () => `pub${++n}`, ...options });
+  const room = createRoom({
+    game: createWoordleGame({ pickAnswers: () => [...ANSWERS] }),
+    clock: createFakeClock(),
+    newPublicId: () => `pub${++n}`,
+    ...options,
+  });
   room.create();
   return room;
 }
+
+const start = (room: Room, connId: string) => room.message(connId, JSON.stringify({ type: "start" }));
 
 // Connects a socket and joins it; returns every effect produced.
 function seat(room: Room, connId: string, playerId: string, name: string): Effect[] {
@@ -29,13 +41,13 @@ const names = (effects: Effect[], connId: string) => lastLobby(effects, connId)?
 
 describe("room creation and lookup", () => {
   test("create succeeds once, then reports the code as taken", () => {
-    const room = createRoom();
+    const room = createRoom({ game: testGame() });
     expect(room.create()).toBe(true);
     expect(room.create()).toBe(false);
   });
 
   test("a socket to a room that was never created gets room-not-found and is closed", () => {
-    const effects = createRoom().connect("c1");
+    const effects = createRoom({ game: testGame() }).connect("c1");
     expect(sentTo(effects, "c1")).toEqual([{ type: "error", code: "room-not-found" }]);
     expect(effects.some((e) => e.kind === "close" && e.connId === "c1")).toBe(true);
   });
@@ -101,40 +113,21 @@ describe("joining", () => {
 });
 
 describe("match phase", () => {
-  const hooked = () => setup({ testHooks: true });
-  const setPhase = (room: Room, connId: string, phase: string) =>
-    room.message(connId, JSON.stringify({ type: "__setPhase", phase }));
-
   test("a new player is blocked with match-in-progress", () => {
-    const room = hooked();
+    const room = setup();
     seat(room, "c1", pid(1), "Ali");
-    setPhase(room, "c1", "match");
+    start(room, "c1");
     const effects = seat(room, "c2", pid(2), "Bo");
     expect(sentTo(effects, "c2")).toEqual([{ type: "error", code: "match-in-progress" }]);
   });
 
   test("a player who already holds a seat is not turned away", () => {
-    const room = hooked();
-    seat(room, "c1", pid(1), "Ali");
-    setPhase(room, "c1", "match");
-    const effects = seat(room, "c1b", pid(1), "Ali");
-    expect(lastLobby(effects, "c1b")?.players).toHaveLength(1);
-  });
-
-  test("after the room returns to the lobby a retry succeeds", () => {
-    const room = hooked();
-    seat(room, "c1", pid(1), "Ali");
-    setPhase(room, "c1", "match");
-    seat(room, "c2", pid(2), "Bo");
-    setPhase(room, "c1", "lobby");
-    expect(names(seat(room, "c3", pid(2), "Bo"), "c3")).toEqual(["Ali", "Bo"]);
-  });
-
-  test("the hook does nothing unless testHooks is on", () => {
     const room = setup();
     seat(room, "c1", pid(1), "Ali");
-    room.message("c1", JSON.stringify({ type: "__setPhase", phase: "match" }));
-    expect(names(seat(room, "c2", pid(2), "Bo"), "c2")).toEqual(["Ali", "Bo"]);
+    start(room, "c1");
+    const effects = seat(room, "c1b", pid(1), "Ali");
+    expect(lastLobby(effects, "c1b")?.players).toHaveLength(1);
+    expect(lastLobby(effects, "c1b")?.phase).toBe("match");
   });
 });
 
@@ -240,16 +233,16 @@ describe("settings", () => {
   });
 
   test("settings are ignored during a match", () => {
-    const room = setup({ testHooks: true });
+    const room = setup();
     seat(room, "c1", pid(1), "Ali");
-    room.message("c1", JSON.stringify({ type: "__setPhase", phase: "match" }));
+    start(room, "c1");
     expect(set(room, "c1", 300)).toEqual([]);
   });
 });
 
 describe("ids and secrets", () => {
   test("no outbound message ever contains a playerId", () => {
-    const room = setup({ testHooks: true });
+    const room = setup();
     const all: Effect[] = [];
     for (let i = 1; i <= 5; i++) all.push(...seat(room, `c${i}`, pid(i), `P${i}`));
     all.push(...seat(room, "c1b", pid(1), "P1")); // takeover
@@ -274,7 +267,7 @@ describe("ids and secrets", () => {
 
   test("a colliding public id is regenerated", () => {
     const ids = ["same", "same", "other"];
-    const room = createRoom({ newPublicId: () => ids.shift() ?? "fallback" });
+    const room = createRoom({ game: testGame(), newPublicId: () => ids.shift() ?? "fallback" });
     room.create();
     seat(room, "c1", pid(1), "Ali");
     const lobby = lastLobby(seat(room, "c2", pid(2), "Bo"), "c2")!;

@@ -1,13 +1,14 @@
 import { describe, expect, test } from "vitest";
 import { handleRoomRequest } from "../party/room/http";
 import { createRoom } from "../party/room/room";
+import { testGame } from "./helpers/game";
 
-const call = (method: string, roomId: string, room = createRoom()) =>
+const call = (method: string, roomId: string, room = createRoom({ game: testGame() })) =>
   handleRoomRequest({ method }, roomId, room);
 
 describe("room creation endpoint", () => {
   test("201 the first time, 409 while the room is alive", async () => {
-    const room = createRoom();
+    const room = createRoom({ game: testGame() });
     const first = call("POST", "ABCD", room);
     expect(first.status).toBe(201);
     expect(await first.json()).toEqual({ code: "ABCD" });
@@ -15,7 +16,7 @@ describe("room creation endpoint", () => {
   });
 
   test("a created room lets sockets in", () => {
-    const room = createRoom();
+    const room = createRoom({ game: testGame() });
     expect(room.connect("c1").some((e) => e.kind === "send")).toBe(true); // not found before
     call("POST", "ABCD", room);
     expect(room.connect("c2")).toEqual([]);
@@ -40,7 +41,7 @@ describe("room creation endpoint", () => {
   });
 
   test("every response carries CORS headers, errors included", () => {
-    const room = createRoom();
+    const room = createRoom({ game: testGame() });
     call("POST", "ABCD", room);
     for (const res of [
       call("POST", "WXYZ"),
@@ -53,7 +54,7 @@ describe("room creation endpoint", () => {
   });
 
   test("a preflight never creates a room", () => {
-    const room = createRoom();
+    const room = createRoom({ game: testGame() });
     call("OPTIONS", "ABCD", room);
     expect(call("POST", "ABCD", room).status).toBe(201);
   });

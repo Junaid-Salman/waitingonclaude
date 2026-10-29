@@ -8,6 +8,7 @@ import { connectRoom, type RoomConnection } from "@/lib/room/room-client";
 import { browserSession } from "@/lib/room/session";
 import { useRoom } from "@/lib/room/store";
 import { Lobby } from "./Lobby";
+import { MatchScreen } from "./MatchScreen";
 import { NameForm } from "./NameForm";
 import { RoomError } from "./RoomError";
 
@@ -39,7 +40,7 @@ export function RoomPage() {
   const joining: Joining | null = chosen ?? (initial?.rejoin ? { name: initial.name, attempt: 0 } : null);
 
   const connection = useRef<RoomConnection | null>(null);
-  const { status, players, roundSeconds, youId, error } = useRoom();
+  const { status, players, phase, roundSeconds, youId, error } = useRoom();
 
   const joiningName = joining?.name ?? null;
   const attempt = joining?.attempt ?? 0;
@@ -78,6 +79,13 @@ export function RoomPage() {
     );
   } else if (status === "error" && error && error !== "invalid-name") {
     content = <RoomError code={error} onRetry={retry} />;
+  } else if (status === "joined" && phase === "match") {
+    content = (
+      <MatchScreen
+        onGuess={(word) => connection.current?.send({ type: "guess", word })}
+        onPlayAgain={() => connection.current?.send({ type: "playAgain" })}
+      />
+    );
   } else if (status === "joined") {
     content = (
       <Lobby
@@ -86,6 +94,7 @@ export function RoomPage() {
         youId={youId}
         roundSeconds={roundSeconds}
         onRoundSeconds={(seconds: RoundSeconds) => connection.current?.send({ type: "settings", roundSeconds: seconds })}
+        onStart={() => connection.current?.send({ type: "start" })}
       />
     );
   } else {

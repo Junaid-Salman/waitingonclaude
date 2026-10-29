@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { buttonClasses } from "@/lib/colors";
 import { connectSolo, type SoloConnection } from "@/lib/woordle/solo-client";
+import { useKeyboardInput } from "@/lib/woordle/use-keyboard-input";
 import { useWoordle } from "@/lib/woordle/store";
 import { Grid } from "./Grid";
 import { Keyboard } from "./Keyboard";
@@ -26,22 +27,7 @@ export function SoloGame() {
     if (word) connection.current?.send({ type: "guess", word });
   }, []);
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
-      if (event.key === "Enter") {
-        // Stops Enter from also clicking whichever on-screen key has focus.
-        event.preventDefault();
-        onEnter();
-      } else if (event.key === "Backspace") {
-        onBackspace();
-      } else if (/^[a-zA-Z]$/.test(event.key)) {
-        onLetter(event.key.toLowerCase());
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onEnter, onBackspace, onLetter]);
+  useKeyboardInput({ onLetter, onEnter, onBackspace });
 
   const finished = status === "won" || status === "lost";
 

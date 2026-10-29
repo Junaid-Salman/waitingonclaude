@@ -2,8 +2,9 @@ import { describe, expect, test } from "vitest";
 import { games, getGame } from "../party/games";
 
 describe("game registry", () => {
-  test("is empty until Phase 3 registers Woordle", () => {
-    expect(Object.keys(games)).toEqual([]);
+  test("registers Woordle", () => {
+    expect(Object.keys(games)).toEqual(["woordle"]);
+    expect(getGame("woordle")?.id).toBe("woordle");
   });
 
   test("an unknown id is undefined", () => {

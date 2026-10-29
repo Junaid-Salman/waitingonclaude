@@ -7,8 +7,11 @@ import {
   keyClassesByColour,
   keyClassesIdle,
   palette,
+  miniTileClassesByColour,
+  miniTileEmptyClasses,
   secondaryButtonClasses,
   selectedOptionClasses,
+  solvedBadgeClasses,
   themes,
   tileClassesByColour,
   tileClassesUnscored,
@@ -78,8 +81,12 @@ describe("colour tokens", () => {
       youBadgeClasses,
       inputClasses,
       focusClasses,
+      solvedBadgeClasses,
+      ...Object.values(miniTileClassesByColour),
+      miniTileEmptyClasses,
     ].flatMap((s) => s.split(/\s+/));
     for (const cls of classes) {
+      if (cls === "border") continue; // a width, not a colour
       const token = cls
         .replace(/^focus-visible:outline-(2|offset-2)$/, "background") // width and offset, not colours
         .replace(/^(focus-visible:outline|bg|text|border)-/, "")
