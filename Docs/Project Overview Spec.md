@@ -64,8 +64,8 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | Module | Location | Responsibility |
 | --- | --- | --- |
 | Platform shell | `src/app/page.tsx`, `src/app/layout.tsx` | Home page, game list, footer disclaimer |
-| Room client | `src/lib/room/` | PartySocket connection, player ID in `sessionStorage`, reconnect |
-| Room layer (server) | `party/room/` | Player list, name suffixing, host role and handover, 5-player cap, mid-match join block, reconnect grace, rate limiting, results screen state |
+| Room client | `src/lib/room/`, `src/components/room/` | PartySocket connection (closed on every server error, because `partysocket` otherwise retries forever), secret player ID and name in `sessionStorage`, room creation with 409 retry, lobby store and UI |
+| Room layer (server) | `party/room/`, `party/main.ts` | Player list, name suffixing, host role and handover, 5-player cap, mid-match join block, reconnect grace, rate limiting, results screen state. Rules are a pure state machine in `room.ts` (no PartyKit imports, portable to Workers); `main.ts` is the thin PartyKit adapter and `http.ts` answers room creation with CORS headers. Phase 2 ships everything except grace, rate limiting and results; a dropped player leaves at once until Phase 5 |
 | Game registry | `party/games/index.ts` | Maps a game ID to its `GameDefinition` |
 | Woordle rules | `party/games/woordle/` | Answer selection, guess validation, scoring, round timing, ranking |
 | Solo party (Phase 1 scaffold) | `party/solo.ts`, `party/games/woordle/solo-session.ts` | One single-player game per connection, before rooms exist. Its fate is decided in Phase 3 |
@@ -133,15 +133,17 @@ export type ClientMessage =
   | { type: "playAgain" };
 
 export type ServerMessage =
-  | { type: "lobby"; players: { id: string; name: string; isHost: boolean; connected: boolean }[]; roundSeconds: number }
+  | { type: "lobby"; players: { id: string; name: string; isHost: boolean; connected: boolean }[]; roundSeconds: number; youId: string }
   | { type: "roundStart"; round: number; startedAt: number; endsAt: number }
   | { type: "guessResult"; word: string; colours: TileColour[] }
   | { type: "guessRejected"; reason: "not-a-word" | "rate-limited" | "round-over" | "no-guesses-left" }
   | { type: "opponentProgress"; playerId: string; rows: TileColour[][]; solvedMs: number | null }
   | { type: "roundEnd"; round: number; answer: string; winnerId: string | null }
   | { type: "matchEnd"; ranking: { playerId: string; name: string; roundsWon: number; totalMs: number; rank: number }[] }
-  | { type: "error"; code: "room-full" | "room-not-found" | "match-in-progress" };
+  | { type: "error"; code: "room-full" | "room-not-found" | "match-in-progress" | "replaced" | "invalid-name" };
 ```
+
+**Secret and public ids.** `playerId` in `join` is a secret the client generates and the server never sends back. Every `id` and `playerId` field in a server message (the `lobby` entries, `opponentProgress`, `matchEnd`) is a separate public id the server assigns to each seat (8 random hex characters). `lobby.youId` tells a client which entry is its own, so the lobby message is sent per recipient. Without this split, the lobby would hand every player every other player's seat credential.
 
 Solo subset (Phase 1, party `solo`; defined in `shared/protocol.ts` as `SoloClientMessage` and `SoloServerMessage`):
 
@@ -245,7 +247,7 @@ Token size: about 60 bytes of JSON plus 12 bytes IV plus 16 bytes tag, roughly 1
 **Time Race**
 
 1. Host clicks "Create room". The browser generates a 4-letter code from `ABCDEFGHJKMNPQRSTUVWXYZ` (no `I`, `L`, `O`) and sends `POST /parties/main/<CODE>`. The server returns `201` or `409` if the code is taken; the client retries with a new code on `409`.
-2. Host lands on `/woordle/room/<CODE>`, enters a name, and the client opens a WebSocket to room `<CODE>` with `{ type: "join", playerId, name }`. `playerId` is `crypto.randomUUID()` stored in `sessionStorage`.
+2. Host lands on `/woordle/room/<CODE>`, enters a name, and the client opens a WebSocket to room `<CODE>` with `{ type: "join", playerId, name }`. `playerId` is `crypto.randomUUID()` stored in `sessionStorage`, with the name and the room code so a refresh re-joins without a prompt. The room-creation `POST` is cross-origin from the Vercel page, and PartyKit adds no CORS headers, so the room server answers `OPTIONS` and sends `Access-Control-Allow-Origin: *` itself (no cookies or credentials are involved).
 3. Friends open the link, join with a name. The server suffixes duplicates ("Ali", "Ali 2") and rejects the 6th player with `room-full`. While a match runs, the server rejects any new `playerId` with `match-in-progress`; that player retries once the room is back in the lobby.
 4. Host picks 2, 3, or 5 minutes per round (default 3) and sends `start`. Start is enabled with 1 or more players, so solo practice works.
 5. For each of 5 rounds, the server picks an unused answer, stamps `startedAt`, broadcasts `roundStart`, and schedules the round end at `startedAt + roundSeconds`.
@@ -395,10 +397,12 @@ git check-ignore .env .env.local
 
 - [ ] Start both servers: `npm run dev`
 - [ ] Open `http://localhost:3000` and confirm the home page lists Woordle.
-- [ ] Confirm the room server answers:
+- [ ] Confirm the room server answers: the first call returns `201`, a repeat while the room is alive returns `409`, and a code that is not four letters from `ABCDEFGHJKMNPQRSTUVWXYZ` returns `400`. Every response carries `Access-Control-Allow-Origin`.
 
 ```bash
 curl -i -X POST http://localhost:1999/parties/main/TEST
+curl -i -X POST http://localhost:1999/parties/main/TEST
+curl -i -X OPTIONS -H "Origin: http://localhost:3000" http://localhost:1999/parties/main/TEST
 ```
 
 - [ ] Run unit tests: `npm test`
@@ -498,6 +502,9 @@ npm run party:deploy
 | Seated player in grace when everyone else is done | Round does not end early; it waits for the grace to expire or the time limit |
 | Host leaves | Host passes to the earliest-joined connected player when the host's grace expires, or at once on an explicit leave |
 | Same link in two tabs | `sessionStorage` is per tab, so each tab is a separate player; both count toward the cap |
+| Same `playerId` joins again (a refresh whose old socket has not closed yet, or Chrome's "Duplicate tab", which copies `sessionStorage`) | The newest connection takes the seat and keeps its name, host flag and join order. The old connection receives `error: replaced` and is closed, and the page offers "Use this tab". A late close from the old connection is ignored |
+| Unusable name | Names are trimmed, whitespace-collapsed, stripped of control and invisible characters, and capped at 20 characters. A name needs a letter, digit or emoji, otherwise `invalid-name`. Duplicate matching ignores case and skips suffixes already taken |
+| Many sockets, few players | A room accepts at most 10 open sockets (extras get `room-full`); frames over 512 characters and anything before a valid `join` are dropped. Full rate limiting is Phase 5 |
 | Everyone leaves | Durable Object evicts; room and names are gone; the code can be reused |
 
 ### 5.3 Timing

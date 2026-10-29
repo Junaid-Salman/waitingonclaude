@@ -1,5 +1,5 @@
 // Message types shared by client and server. No word data and no secrets belong here.
-// Phase 1 defines only the solo subset; the room and match messages join in Phases 2 and 3.
+// Phase 1 defined the solo subset, Phase 2 adds the room messages; match messages join in Phase 3.
 
 export type TileColour = "green" | "yellow" | "grey";
 
@@ -16,3 +16,37 @@ export type SoloServerMessage =
   | { type: "guessRejected"; reason: GuessRejectReason }
   // The only message that may carry the answer, and only after the final guessResult.
   | { type: "soloEnd"; won: boolean; answer: string };
+
+// Room messages (party "main").
+//
+// `playerId` is a secret the client generates and keeps in sessionStorage. The server never sends
+// it back: every broadcast uses the public `id` the server assigns to each seat, so seeing the
+// lobby does not let anyone take another player's seat.
+
+export type RoundSeconds = 120 | 180 | 300;
+export const ROUND_SECONDS_OPTIONS: readonly RoundSeconds[] = [120, 180, 300];
+export const DEFAULT_ROUND_SECONDS: RoundSeconds = 180;
+export const MAX_PLAYERS = 5;
+export const MAX_NAME_LENGTH = 20;
+
+export type RoomClientMessage =
+  | { type: "join"; playerId: string; name: string }
+  | { type: "settings"; roundSeconds: RoundSeconds };
+
+export interface LobbyPlayer {
+  id: string;
+  name: string;
+  isHost: boolean;
+  connected: boolean;
+}
+
+export type RoomErrorCode =
+  | "room-full"
+  | "room-not-found"
+  | "match-in-progress"
+  | "replaced"
+  | "invalid-name";
+
+export type RoomServerMessage =
+  | { type: "lobby"; players: LobbyPlayer[]; roundSeconds: number; youId: string }
+  | { type: "error"; code: RoomErrorCode };

@@ -122,3 +122,10 @@ export const tileClassesUnscored = {
 export const keyClassesIdle = "bg-key-idle";
 
 export const buttonClasses = "bg-tile-correct text-tile-correct-fg";
+
+export const secondaryButtonClasses = "bg-key-idle text-foreground";
+export const selectedOptionClasses = "bg-tile-correct text-tile-correct-fg";
+export const hostBadgeClasses = "bg-tile-present text-tile-present-fg";
+export const youBadgeClasses = "bg-key-idle text-foreground";
+export const inputClasses = "border-tile-border bg-background text-foreground";
+export const focusClasses = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tile-correct";

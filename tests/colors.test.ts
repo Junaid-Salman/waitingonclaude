@@ -1,12 +1,18 @@
 import { describe, expect, test } from "vitest";
 import {
   buttonClasses,
+  focusClasses,
+  hostBadgeClasses,
+  inputClasses,
   keyClassesByColour,
   keyClassesIdle,
   palette,
+  secondaryButtonClasses,
+  selectedOptionClasses,
   themes,
   tileClassesByColour,
   tileClassesUnscored,
+  youBadgeClasses,
 } from "../src/lib/colors";
 
 const luminance = (hex: string) => {
@@ -66,9 +72,18 @@ describe("colour tokens", () => {
       ...Object.values(tileClassesUnscored),
       keyClassesIdle,
       buttonClasses,
+      secondaryButtonClasses,
+      selectedOptionClasses,
+      hostBadgeClasses,
+      youBadgeClasses,
+      inputClasses,
+      focusClasses,
     ].flatMap((s) => s.split(/\s+/));
     for (const cls of classes) {
-      const token = cls.replace(/^(bg|text|border)-/, "").replace(/\/\d+$/, "");
+      const token = cls
+        .replace(/^focus-visible:outline-(2|offset-2)$/, "background") // width and offset, not colours
+        .replace(/^(focus-visible:outline|bg|text|border)-/, "")
+        .replace(/\/\d+$/, "");
       expect(tokens.has(token), cls).toBe(true);
     }
   });

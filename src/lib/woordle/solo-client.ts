@@ -1,5 +1,6 @@
 import PartySocket from "partysocket";
 import type { SoloClientMessage, SoloServerMessage } from "../../../shared/protocol";
+import { partyHost } from "../party-host";
 import { useWoordle } from "./store";
 
 function isServerMessage(value: unknown): value is SoloServerMessage {
@@ -15,8 +16,7 @@ export interface SoloConnection {
 
 // One socket per game page, in a random room so load spreads across Durable Objects.
 export function connectSolo(): SoloConnection {
-  const host = process.env.NEXT_PUBLIC_PARTYKIT_HOST ?? "localhost:1999";
-  const socket = new PartySocket({ host, party: "solo", room: crypto.randomUUID() });
+  const socket = new PartySocket({ host: partyHost(), party: "solo", room: crypto.randomUUID() });
   let opened = false;
 
   socket.addEventListener("message", (event) => {
