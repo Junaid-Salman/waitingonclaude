@@ -40,8 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-Plans/
-Reviews/
+.claude/Plans/
+.claude/Reviews/
+.claude/Docs/
+.claude/settings.local.json
 Project Files/
 CLAUDE.md
 rules.md

@@ -1,6 +1,6 @@
 // Builds party/data/answers.json and party/data/guesses.json from SCOWL and LDNOOBW.
 //
-//   node scripts/build-wordlists.mjs --download [--report Plans/phase-1-answer-review.md]
+//   node scripts/build-wordlists.mjs --download [--report .claude/Plans/phase-1-answer-review.md]
 //   node scripts/build-wordlists.mjs --scowl <extracted dir> --blocklist <file> --frequency <file> [--report <file>]
 //
 // Rules are documented in party/data/LICENSES.md. Exits non-zero on any invariant failure.
