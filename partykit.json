@@ -1,0 +1,9 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "waitingonclaude",
+  "main": "party/main.ts",
+  "parties": {
+    "challenge": "party/challenge.ts",
+    "solo": "party/solo.ts"
+  }
+}

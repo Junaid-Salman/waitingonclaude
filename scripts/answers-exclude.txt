@@ -1,0 +1,22 @@
+# Informal contractions and spellings that are common in subtitles but are not acceptable answers.
+dunno
+gimme
+gonna
+kinda
+lemme
+sorta
+wanna
+mamma
+# Sensitive words (slurs, violence, sexual or bodily terms) the owner does not want as answers.
+lynch
+queer
+sissy
+paddy
+moron
+booby
+booty
+sperm
+groin
+thong
+urine
+vomit

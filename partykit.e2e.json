@@ -1,0 +1,8 @@
+{
+  "$schema": "https://www.partykit.io/schema.json",
+  "name": "waitingonclaude-e2e",
+  "main": "party/main.ts",
+  "parties": {
+    "solo": "party/e2e/solo-fixed.ts"
+  }
+}
