@@ -1,12 +1,7 @@
+import { keyClassesByColour, keyClassesIdle } from "@/lib/colors";
 import type { KeyColours } from "@/lib/woordle/keyboard";
 
 const ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
-
-const keyStyles = {
-  green: "bg-tile-correct text-white",
-  yellow: "bg-tile-present text-stone-900",
-  grey: "bg-key-absent text-key-absent-fg",
-};
 
 interface Props {
   colours: KeyColours;
@@ -16,13 +11,13 @@ interface Props {
 }
 
 export function Keyboard({ colours, onLetter, onEnter, onBackspace }: Props) {
-  const base = "h-12 rounded font-semibold uppercase select-none";
+  const base = "h-12 rounded uppercase select-none";
   return (
     <div role="group" aria-label="Keyboard" className="mx-auto flex w-full max-w-lg flex-col gap-1.5">
       {ROWS.map((row, i) => (
         <div key={row} className="flex justify-center gap-1">
           {i === 2 && (
-            <button type="button" className={`${base} bg-key-idle flex-[1.5] px-1 text-xs`} onClick={onEnter}>
+            <button type="button" className={`${base} ${keyClassesIdle} semibold-text-xs flex-[1.5] px-1`} onClick={onEnter}>
               Enter
             </button>
           )}
@@ -35,7 +30,7 @@ export function Keyboard({ colours, onLetter, onEnter, onBackspace }: Props) {
                 data-key={letter}
                 data-colour={colour ?? "none"}
                 aria-label={colour ? `${letter}, ${colour === "green" ? "correct" : colour === "yellow" ? "in the word" : "not in the word"}` : letter}
-                className={`${base} flex-1 ${colour ? keyStyles[colour] : "bg-key-idle"}`}
+                className={`${base} semibold-text-md flex-1 ${colour ? keyClassesByColour[colour] : keyClassesIdle}`}
                 onClick={() => onLetter(letter)}
               >
                 {letter}
@@ -43,7 +38,7 @@ export function Keyboard({ colours, onLetter, onEnter, onBackspace }: Props) {
             );
           })}
           {i === 2 && (
-            <button type="button" className={`${base} bg-key-idle flex-[1.5] px-1 text-xs`} aria-label="Backspace" onClick={onBackspace}>
+            <button type="button" className={`${base} ${keyClassesIdle} semibold-text-xs flex-[1.5] px-1`} aria-label="Backspace" onClick={onBackspace}>
               ⌫
             </button>
           )}

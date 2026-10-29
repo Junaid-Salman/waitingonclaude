@@ -71,6 +71,7 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | Solo party (Phase 1 scaffold) | `party/solo.ts`, `party/games/woordle/solo-session.ts` | One single-player game per connection, before rooms exist. Its fate is decided in Phase 3 |
 | Challenge server | `party/challenge.ts` | Seals and opens challenge tokens, runs a solver session |
 | Woordle UI | `src/app/woordle/`, `src/components/woordle/` | Grid, keyboard, opponent boards, timers, summaries |
+| Design tokens | `src/lib/colors.ts`, `tailwind.config.ts` | `colors.ts` is the only place a colour value is written (palette, light and dark semantic tokens, class maps). `tailwind.config.ts` turns those tokens into CSS variables and colour utilities, sets the Geist font families, and defines the type scale as `<weight>-<step>` classes such as `semibold-display-sm` and `regular-text-md` (4 weights × 11 steps). Components use these tokens and classes, never raw colours, `text-<size>` or `font-<weight>`; `tests/design-tokens.test.ts` enforces it |
 | Shared types | `shared/protocol.ts` | Message types used by both client and server; no word data |
 | Word data | `party/data/answers.json`, `party/data/guesses.json` | Server-only word lists |
 
@@ -79,7 +80,7 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | Layer | Choice | Role |
 | --- | --- | --- |
 | Frontend | Next.js (App Router) + TypeScript | Pages and routing, deployed to Vercel |
-| Styling | Tailwind CSS | Grid, keyboard, responsive layout |
+| Styling | Tailwind CSS 4 | Grid, keyboard, responsive layout. The JS config `tailwind.config.ts` is loaded through `@config` in `src/app/globals.css`; Tailwind 4 detects source files itself, so there is no `content` list |
 | Animation | Framer Motion | Tile flip, shake, reveal |
 | Client state | Zustand | Board, current guess, keyboard colours |
 | Real-time | PartyKit (`partykit`, `partysocket`) | One server instance per room on Cloudflare Durable Objects |

@@ -23,9 +23,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col font-sans">
         {children}
-        <footer className="p-4 text-center text-sm text-zinc-500">
+        <footer className="regular-text-sm p-4 text-center text-muted">
           Not affiliated with Anthropic or The New York Times.
         </footer>
       </body>

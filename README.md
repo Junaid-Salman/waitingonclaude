@@ -2,6 +2,10 @@
 
 Browser game hub for people waiting on Claude to finish a task. First game: Woordle.
 
+## Styling rules
+
+Colours are defined only in `src/lib/colors.ts`; fonts and the type scale only in `tailwind.config.ts`. Use token classes (`bg-tile-correct`, `text-muted`, `semibold-text-md`), not raw colours, `text-sm` or `font-bold`. `npm test` fails if `src/` breaks this.
+
 ## Run locally
 
 ```bash
