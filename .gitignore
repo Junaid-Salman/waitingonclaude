@@ -52,3 +52,4 @@ rules.md
 # playwright
 /test-results/
 /playwright-report/
+.claude/handoffs/

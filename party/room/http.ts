@@ -1,17 +1,5 @@
 import { isRoomCode } from "../../shared/room-code";
-
-// PartyKit adds no CORS headers, so the browser's cross-origin POST would be blocked without these.
-// There are no cookies or credentials, so "*" exposes nothing a direct request could not do.
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
-  "Access-Control-Max-Age": "86400",
-} as const;
-
-function reply(status: number, body: string | null, extra: Record<string, string> = {}): Response {
-  return new Response(body, { status, headers: { ...CORS_HEADERS, ...extra } });
-}
+import { reply } from "../http-cors";
 
 // POST /parties/main/<CODE> creates the room: 201, or 409 while a live room already holds the code.
 export function handleRoomRequest(req: { method: string }, roomId: string, room: { create(): boolean }): Response {

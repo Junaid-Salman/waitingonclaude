@@ -96,3 +96,60 @@ export type RoomServerMessage =
       nextAt: number;
     }
   | { type: "matchEnd"; ranking: RankingEntry[] };
+
+// Challenge messages (party "challenge").
+//
+// A creator seals five words into a token with POST /parties/challenge/seal; a solver opens the
+// link and sends the token in `begin`. The token is ciphertext, so the words reach the browser
+// only as `roundEnd.answer`, after their round is over.
+
+export type ChallengeSeconds = 60 | 120 | 180 | 300;
+export const CHALLENGE_SECONDS_OPTIONS: readonly ChallengeSeconds[] = [60, 120, 180, 300];
+export const DEFAULT_CHALLENGE_SECONDS: ChallengeSeconds = 180;
+export const CHALLENGE_ROUNDS = ROUNDS_PER_MATCH;
+// A real token is about 134 characters; anything near this cap is hostile.
+export const MAX_TOKEN_CHARS = 512;
+
+export type ChallengeClientMessage = { type: "begin"; token: string } | { type: "guess"; word: string };
+
+export interface ChallengeRoundResult {
+  answer: string;
+  solvedMs: number | null;
+  guesses: number;
+}
+
+export type ChallengeErrorCode = "invalid-token" | "unavailable";
+
+export type ChallengeServerMessage =
+  | { type: "challengeStart"; totalRounds: number; limitSec: number }
+  // `startedAt` is the server clock when the round began (the client estimates its offset from it).
+  | { type: "roundStart"; round: number; totalRounds: number; startedAt: number; endsAt: number }
+  | { type: "guessResult"; word: string; colours: TileColour[]; solvedMs: number | null }
+  | { type: "guessRejected"; reason: GuessRejectReason }
+  // The only messages that carry a word. `nextAt` is the server time of the next roundStart (or of
+  // challengeEnd after the last round).
+  | { type: "roundEnd"; round: number; answer: string; solvedMs: number | null; guesses: number; nextAt: number }
+  | { type: "challengeEnd"; rounds: ChallengeRoundResult[]; solved: number; totalMs: number }
+  | { type: "error"; code: ChallengeErrorCode };
+
+// HTTP shapes. The token goes in the link path, so it is URL-safe base64.
+export interface SealRequest {
+  words: string[];
+  limitSec: number;
+}
+export type WordProblem = "bad-format" | "not-a-word" | "duplicate";
+export interface SealResponse {
+  token: string;
+}
+export interface SealError {
+  error: "invalid" | "not-configured";
+  // Per-word reasons, so the form can mark each word. Never echoes the words themselves.
+  words?: { index: number; reason: WordProblem }[];
+  limit?: boolean;
+}
+export interface CheckRequest {
+  word: string;
+}
+export interface CheckResponse {
+  valid: boolean;
+}

@@ -26,3 +26,10 @@ Create `.env` with `CHALLENGE_KEY` (`openssl rand -base64 32`) and `.env.local` 
 ## Playing a match
 
 Create a room, share the link, and the host picks a round length (2, 3 or 5 minutes) and presses Start. Five rounds are played against a server-controlled clock: the first player to solve a round wins it, a round ends early when everyone is done, and opponents' boards show colours only. After round 5 players are ranked by rounds won, then total time (an unsolved round counts as the full limit); players who tie share a rank. The host can send everyone back to the lobby with Play again.
+
+## Challenges
+
+Open `/woordle/challenge/new`, enter 5 words and pick a time per word (1, 2, 3 or 5 minutes). `POST /parties/challenge/seal` checks the words against the guess list, rejects duplicates, and returns a token: the words and limit sealed with AES-GCM under `CHALLENGE_KEY`. The link is `/woordle/challenge/<token>`; it never shows the words, and the browser receives each word only when its round ends. `POST /parties/challenge/check` answers whether one word is in the guess list, so the form can mark a bad word as you leave its field. Nothing is stored. Rotating `CHALLENGE_KEY` makes every existing link say it has expired.
+
+Locally, `CHALLENGE_KEY` comes from the git-ignored `.env` (`openssl rand -base64 32`). In production it is set with `npx partykit env add CHALLENGE_KEY`, never as `NEXT_PUBLIC_*`.
+

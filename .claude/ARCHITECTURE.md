@@ -17,8 +17,8 @@ Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScri
 | 0 Bootstrap | Scaffold, tooling, guardrails | Done, committed |
 | 1 Woordle core | Solo game, word lists, scoring, design tokens | Done, committed |
 | 2 Rooms | Create/join by link, lobby, host, cap, takeover | Done, committed |
-| 3 Time Race | Rounds, timers, ranking, `start`/`playAgain`, opponent boards | Done |
-| 4 Challenge | AES-GCM link, solver session | **Next** (plan not yet written; `party/challenge.ts` is a stub) |
+| 3 Time Race | Rounds, timers, ranking, `start`/`playAgain`, opponent boards | Done, committed |
+| 4 Challenge | AES-GCM link, solver session, creator form | Built, awaiting sign-off (not committed) |
 | 5 Polish | 60 s reconnect grace, rate limits, animations, mobile | Not started |
 | 6 Launch | Deploy, playtest | Not started |
 
@@ -40,7 +40,9 @@ Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/P
 | Colours, fonts, type scale | `src/lib/colors.ts`, `tailwind.config.ts` | `globals.css` (8 lines, no values) |
 | Word lists | `scripts/build-wordlists.mjs`, `party/data/LICENSES.md` | `party/data/*.json` |
 | E2E | `playwright.config.ts`, the one spec you touch | |
-| Challenge token (Phase 4) | Spec 2.7 (has the reference code), `party/challenge.ts` | |
+| Challenge token and seal | `party/challenge/{token,seal}.ts`, `tests/challenge-{token,seal}.test.ts`; Spec 2.7 | |
+| Challenge solver run | `party/challenge/session.ts` (pure), `party/challenge.ts` (adapter), `tests/challenge-{session,server}.test.ts` | |
+| Challenge UI | `src/components/challenge/*`, `src/lib/challenge/*`; form rules are pure in `lib/challenge/form.ts` (there is no component-test tooling, so logic worth testing goes there) | |
 | Why a decision was made | The phase plan's "Gaps" and "Deviations" tables, then Spec 5.5 | |
 
 ## 3. Repo map
@@ -57,24 +59,27 @@ shared/                    code used by BOTH sides. No secrets, no word data
 party/                     SERVER. Never imported by src/ (ESLint-enforced)
   main.ts                  PartyKit adapter for rooms: createRoomServer({game?}), real clock, applies timer effects
   solo.ts                  Phase 1 scaffold: one solo game per connection (fate decided in Phase 3)
-  challenge.ts             stub (Phase 4)
+  challenge.ts             PartyKit adapter for Challenge: createChallengeServer({timeScale?, revealMs?}); onRequest -> seal/check, sockets -> session
+  challenge/               token.ts (AES-GCM, result-style open), seal.ts (validation + HTTP), session.ts (pure solver run)
+  http-cors.ts             CORS headers + reply helpers shared by room and challenge HTTP
   room/                    room.ts (pure rules), names.ts, http.ts (201/409/400 + CORS), apply.ts, types.ts
   games/                   types.ts (GameDefinition contract), index.ts (registry: woordle), woordle/{game,match rules,ranking,score,board,...}
   data/                    answers.json (1,374), guesses.json (6,483), LICENSES.md
   e2e/                     test-only server entries: fixed answers, round limits shrunk to 1% (injected, no test branch in room code)
 src/                       FRONTEND (browser)
-  app/                     /, /woordle, /woordle/solo, /woordle/room/[code], layout, globals.css
-  components/{woordle,room}/   UI
+  app/                     /, /woordle, /woordle/solo, /woordle/room/[code], /woordle/challenge/new, /woordle/challenge/[token], layout, globals.css
+  components/{woordle,room,challenge}/   UI
   lib/colors.ts            ONLY place a colour value is written
   lib/party-host.ts        PartyKit host + http/https choice
   lib/room/                session.ts, create-room.ts, store.ts, room-client.ts
   lib/woordle/             store.ts, solo-client.ts, keyboard.ts
+  lib/challenge/           store.ts, challenge-client.ts, seal-client.ts, link.ts (isPlausibleToken), form.ts (pure form rules)
 tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables
 scripts/                   build-wordlists.mjs, check-bundle.mjs, answers-exclude.txt
-tests/                     Vitest (28 files, 367 tests), helpers in tests/helpers (fake clock, test game)
-e2e/                       Playwright (4 specs, 26 tests), shared player helpers in e2e/helpers.ts
+tests/                     Vitest (34 files, 540 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
+e2e/                       Playwright (5 specs, 38 tests), shared player helpers in e2e/helpers.ts
 partykit.json              production parties: main, challenge, solo
-partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer
+partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer, challenge -> scaled limits; vars.CHALLENGE_KEY is a fixed test-only key
 ```
 
 ## 4. Runtime architecture
@@ -85,7 +90,7 @@ Browser (Zustand, PartySocket) ──HTTPS──▶ Vercel: Next.js static UI (n
         └──WebSocket + POST──▶ PartyKit (Durable Objects, in memory, die with last connection)
                                  party "main"      one object per room code: rooms/lobby
                                  party "solo"      one object per random id: a solo game per connection
-                                 party "challenge" stub
+                                 party "challenge" HTTP seal/check + one run per connection (random room id)
 ```
 
 Server is authoritative. The client sends intents and renders what the server returns. It never computes tile colours, never sees the answer before the game ends, and never imports `party/`.
@@ -97,6 +102,8 @@ Server is authoritative. The client sends intents and renders what the server re
 - **Solo guess:** `guess {word}` -> server trims/lowercases, checks the guess list, `scoreGuess`, replies `guessResult` (+ `soloEnd {won, answer}` on the last one).
 - **Match:** host `start` -> room sets phase `match`, sends `lobby{phase:"match"}`, then the game sends `roundStart`. Each `guess` goes through `game.parseAction`, then `onAction`: `guessResult` to the sender, `opponentProgress` (colours only) to the others. A round ends at `endsAt` (a timer the game scheduled) or as soon as every connected player is done; `roundEnd` carries the answer. After 5 s the next `roundStart`, or after round 5 `matchEnd`. Host `playAgain` returns everyone to the lobby.
 - **Timers:** the game schedules *actions* (`endRound`, `nextRound`, `finish`) through `ctx.schedule`; the room delivers them as `onAction` with sender `SYSTEM`, tracks every pending timer, and cancels them when a match is abandoned. The adapter passes `Date.now`/`setTimeout`; tests pass `tests/helpers/fake-clock.ts`.
+- **Create challenge:** `/woordle/challenge/new`. Each word field, on blur, calls `POST {host}/parties/challenge/check` (the word list never reaches the browser); "Create link" calls `/seal`, which re-validates and returns the token; the link is `origin + /woordle/challenge/<token>`.
+- **Solve challenge:** the page renders Start without any network. Start opens a socket to party `challenge` (random room id) and sends `begin {token}`. The server opens the token (`invalid-token` / `unavailable` otherwise), runs 5 rounds through `session.ts` (round timer, 5 s reveal, auto next round), and ends with `challengeEnd`. Play again sends `begin` again. A dropped socket loses the run.
 - **Client:** `room-client.ts` sends `lobby`/`error` to `useRoom` and everything else to `useMatch`; a `lobby` with `phase:"lobby"` resets the match store. The timer display uses an offset estimated at each `roundStart` (display only).
 
 ## 5. Protocol cheat sheet (truth: `shared/protocol.ts`)
@@ -105,6 +112,8 @@ Server is authoritative. The client sends intents and renders what the server re
 | --- | --- | --- |
 | Client -> server | `join {playerId, name}`, `settings {roundSeconds: 120/180/300}`, `start`, `guess {word}`, `playAgain` | `guess {word}`, `newGame` |
 | Server -> client | `lobby {players[{id,name,isHost,connected}], roundSeconds, youId, phase}`, `error {code}`, `roundStart {round, totalRounds, startedAt, endsAt, players}`, `guessResult {word, colours, solvedMs}`, `guessRejected`, `opponentProgress {id, rows, solvedMs}`, `roundEnd {round, answer, winnerId, results, nextAt}`, `matchEnd {ranking}` | `soloStart`, `guessResult`, `guessRejected {reason}`, `soloEnd {won, answer}` |
+
+Challenge messages are listed in Spec 2.5 (`ChallengeClientMessage`, `ChallengeServerMessage`); challenge errors are `invalid-token` and `unavailable`.
 
 Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `invalid-name`. Change `shared/protocol.ts` first, then server, then client.
 
@@ -136,7 +145,7 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 ```bash
 npm run dev            # Next :3000 + PartyKit :1999
 npm run lint           # eslint .
-npm test               # Vitest, 226 tests, ~1 s
+npm test               # Vitest, 540 tests, ~2 s
 npm run test:e2e       # Playwright; starts its own servers, STOP npm run dev FIRST
 npm run build && npm run check:bundle   # word data must not reach .next/static
 ```
@@ -164,6 +173,10 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | A time scale must not shrink the pause between rounds | It is a UI pause; scaling it made the summary last 3 ms and invisible to tests. Only round limits scale |
 | e2e frame recorders see Next's dev hot-reload socket too | Record only sockets whose URL contains `/parties/` before parsing frames as JSON |
 | Assert on data, not on a 300 ms window | Playwright polls at 100 to 1000 ms; keep the e2e pause long enough to observe, or assert from recorded frames |
+| Pure session + injected clock | `challenge/session.ts` takes `{clock, send}`; tests use `tests/helpers/fake-clock.ts`. Do not call `setTimeout` in it |
+| `CHALLENGE_KEY` handling | Read only from `room.env` in `party/`; missing or not 32 bytes fails closed. e2e gets a fixed test key from `partykit.e2e.json` `vars` |
+| Challenge links and word-list rebuilds | Regenerating the lists can remove a sealed word; `begin` then answers `invalid-token` (link expired) |
+| e2e is intermittently flaky on a cold dev server | `next dev` compiles routes on demand, so the first run after source edits can time out a few tests (seen in rooms, match and challenge specs, never the same one twice). A rerun passes. Clicks right after `goto` can land before hydration: Challenge specs use `pressStart` (retries an idempotent click). A production-build e2e target would remove the cause; not done |
 | Mutation-check a new guard | Plant the bug (a late guess accepted, an answer in `roundStart`) and confirm the test fails, then restore |
 
 ## 10. Do not read (token cost, chars / 4 ≈ tokens)

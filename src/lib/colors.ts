@@ -61,6 +61,10 @@ export const palette = {
     900: "#78350f",
     950: "#451a03",
   },
+  red: {
+    400: "#f87171",
+    600: "#dc2626",
+  },
 } as const;
 
 // Semantic tokens. `-fg` is the text colour that sits on the token of the same name.
@@ -80,6 +84,8 @@ export const themes = {
     "key-idle": palette.slate[200],
     "key-absent": palette.slate[600],
     "key-absent-fg": palette.white,
+    // Text and borders for a rejected input (a Challenge word that is not allowed).
+    invalid: palette.red[600],
   },
   dark: {
     background: palette.neutral[950],
@@ -96,6 +102,7 @@ export const themes = {
     // Dimmer than an unused key so spent letters read at a glance.
     "key-absent": palette.slate[800],
     "key-absent-fg": palette.slate[300],
+    invalid: palette.red[400],
   },
 } as const satisfies Record<"light" | "dark", Record<string, string>>;
 
@@ -128,6 +135,8 @@ export const selectedOptionClasses = "bg-tile-correct text-tile-correct-fg";
 export const hostBadgeClasses = "bg-tile-present text-tile-present-fg";
 export const youBadgeClasses = "bg-key-idle text-foreground";
 export const inputClasses = "border-tile-border bg-background text-foreground";
+export const invalidInputClasses = "border-invalid";
+export const invalidTextClasses = "text-invalid";
 export const focusClasses = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tile-correct";
 
 export const solvedBadgeClasses = "bg-tile-correct text-tile-correct-fg";

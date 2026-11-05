@@ -169,6 +169,19 @@ Solo subset (Phase 1, party `solo`; defined in `shared/protocol.ts` as `SoloClie
 | Server → client | `guessResult`, `guessRejected` | Same shapes as above |
 | Server → client | `{ type: "soloEnd"; won; answer }` | The only message that carries the answer, sent after the final `guessResult` |
 
+Challenge subset (Phase 4, party `challenge`; `ChallengeClientMessage` and `ChallengeServerMessage` in `shared/protocol.ts`):
+
+| Direction | Message | Notes |
+| --- | --- | --- |
+| Client → server | `{ type: "begin"; token }` | Honoured when no run is live; after the summary it starts a replay. A bad token, including one longer than 512 characters, gets `error {code:"invalid-token"}`; a server without a usable key gets `error {code:"unavailable"}`. Frames over 576 characters (512 for the token plus its envelope) are dropped without a reply. The client never sends a token that is empty, over 512 characters, or outside the URL-safe base64 alphabet: it shows "expired" locally, and it returns to Start if no reply comes within 10 seconds |
+| Client → server | `{ type: "guess"; word }` | Dropped before `begin` |
+| Server → client | `{ type: "challengeStart"; totalRounds; limitSec }` | Never carries words |
+| Server → client | `roundStart {round, totalRounds, startedAt, endsAt}`, `guessResult {word, colours, solvedMs}`, `guessRejected {reason}` | Same meaning as the race; `roundStart` has no roster |
+| Server → client | `roundEnd {round, answer, solvedMs, guesses, nextAt}` | The only per-round message with a word |
+| Server → client | `challengeEnd {rounds[{answer, solvedMs, guesses}], solved, totalMs}` | Unsolved rounds count the full limit in `totalMs` |
+
+HTTP, on the same party (the room id in the URL is the route): `POST /parties/challenge/seal {words, limitSec}` returns `{token}`, or 400 `{error:"invalid", words?:[{index, reason}], limit?}` with reasons `bad-format`, `not-a-word`, `duplicate` (indexes only, never the words), or 500 `{error:"not-configured"}`. `POST /parties/challenge/check {word}` returns `{valid}`. Both answer `OPTIONS` with CORS headers (`party/http-cors.ts`), take bodies up to 1,024 characters, and reject unknown fields.
+
 ### 2.6 Scoring Function
 
 Two passes: greens first, then yellows from the remaining letter counts. This colours repeated letters only as many times as they appear in the answer.
@@ -255,7 +268,9 @@ export async function openChallenge(token: string, base64Key: string): Promise<C
 }
 ```
 
-Token size: about 60 bytes of JSON plus 12 bytes IV plus 16 bytes tag, roughly 120 base64url characters. The full link stays under 200 characters.
+**As built (Phase 4).** `party/challenge/token.ts` differs from the reference above in three ways: `openChallenge` never throws and returns `{ok:true,payload}` or `{ok:false}`, so a rotated key, a truncated link and a tampered one are indistinguishable to the caller; the payload is re-validated after decryption (exactly 5 distinct 5-letter lowercase words, `limitSec` one of 60/120/180/300, token at most 512 characters); and the key must decode to exactly 32 bytes, with no fallback key (`sealChallenge` returns `null` and the seal endpoint answers 500 `not-configured`). `begin` also re-checks every word against the guess list, so a word removed by a later list update expires the link instead of making a round unwinnable.
+
+Token size: 72 bytes of JSON plus 12 bytes IV plus 16 bytes tag, measured at 134 base64url characters. The full link is about 186 characters on `waitingonclaude.vercel.app` and 191 on the fallback host, under 200 (a unit test pins both).
 
 ### 2.8 System Flows
 
@@ -273,11 +288,11 @@ Token size: about 60 bytes of JSON plus 12 bytes IV plus 16 bytes tag, roughly 1
 **Challenge**
 
 1. Creator opens `/woordle/challenge/new`, enters 5 words and picks a per-round limit of 1, 2, 3, or 5 minutes.
-2. The client sends `POST /parties/challenge/seal` with `{ words, limitSec }`. The server checks each word against the guess list, rejects duplicates, seals the token, and returns it.
+2. As each word field loses focus the client asks `POST /parties/challenge/check` whether it is in the guess list (the word list never reaches the browser); duplicates and format are checked locally. The client then sends `POST /parties/challenge/seal` with `{ words, limitSec }`. The server re-checks every word, rejects duplicates, seals the token, and returns it.
 3. The client shows `/woordle/challenge/<token>` with a copy button.
-4. The solver opens the link. The client opens a WebSocket to party `challenge`, room `<random session ID>`, and sends `{ type: "begin", token }`.
-5. The server opens the token, runs 5 timed rounds with server timestamps, and reveals each word at the end of its round.
-6. The solver sees a summary of words solved and time taken. Nothing is stored or reported to the creator.
+4. The solver opens the link and clicks Start. Only then does the client open a WebSocket to party `challenge`, room `<random session ID>`, and send `{ type: "begin", token }`; opening the link connects to nothing.
+5. The server opens the token and runs 5 timed rounds with server timestamps. A round ends when the word is solved, the 6 guesses are used, or the limit passes; the word is revealed for 5 seconds and the next round starts by itself, with the same late-guess rule as the race.
+6. The solver sees a summary of words solved and total time (an unsolved word counts the full limit). Play again replays the same link on the same socket. A dropped socket loses the run. Nothing is stored or reported to the creator.
 
 ### 2.9 Privacy and Fairness Rules
 
@@ -462,7 +477,7 @@ npm run party:deploy
 ### 4.3 Create and Send a Challenge
 
 1. Open `/woordle/challenge/new`.
-2. Enter 5 words. Each word turns red if it is not in the guess list or repeats another entry.
+2. Enter 5 words. Each word turns red if it is not in the guess list (checked when you leave the field) or repeats another entry.
 3. Pick the per-round time limit.
 4. Click "Create link", copy the link, send it. The link never shows the words.
 

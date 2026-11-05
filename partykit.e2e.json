@@ -3,6 +3,10 @@
   "name": "waitingonclaude-e2e",
   "main": "party/e2e/main-test.ts",
   "parties": {
-    "solo": "party/e2e/solo-fixed.ts"
+    "solo": "party/e2e/solo-fixed.ts",
+    "challenge": "party/e2e/challenge-test.ts"
+  },
+  "vars": {
+    "CHALLENGE_KEY": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
   }
 }
