@@ -2,7 +2,7 @@
 
 import { useReducedMotion } from "framer-motion";
 import { useEffect, useState } from "react";
-import { keyClassesByColour, keyClassesIdle } from "@/lib/colors";
+import { keyClassesByColour, keyClassesIdle, keyPieceClasses } from "@/lib/colors";
 import { ROW_REVEAL_MS } from "@/lib/motion/timing";
 import type { KeyColours } from "@/lib/woordle/keyboard";
 
@@ -33,13 +33,13 @@ interface Props {
 export function Keyboard({ colours: latest, onLetter, onEnter, onBackspace, disabled = false }: Props) {
   const colours = useRevealedColours(latest);
   // At least 44 px tall (Apple's touch target); touch-manipulation stops double-tap zoom on iOS.
-  const base = "h-12 min-h-11 min-w-0 rounded uppercase select-none touch-manipulation disabled:opacity-60";
+  const base = `h-12 min-h-11 min-w-0 rounded-lg uppercase select-none touch-manipulation disabled:opacity-60 ${keyPieceClasses}`;
   return (
-    <div role="group" aria-label="Keyboard" className="mx-auto flex w-full max-w-lg flex-col gap-1.5">
+    <div role="group" aria-label="Keyboard" data-board-keyboard className="mx-auto flex w-full max-w-lg flex-col gap-1.5">
       {ROWS.map((row, i) => (
         <div key={row} className="flex justify-center gap-1">
           {i === 2 && (
-            <button type="button" className={`${base} ${keyClassesIdle} semibold-text-xs flex-[1.5] px-1`} disabled={disabled} onClick={onEnter}>
+            <button type="button" className={`${base} ${keyClassesIdle} bold-text-xs flex-[1.5] px-1`} disabled={disabled} onClick={onEnter}>
               Enter
             </button>
           )}
@@ -52,7 +52,7 @@ export function Keyboard({ colours: latest, onLetter, onEnter, onBackspace, disa
                 data-key={letter}
                 data-colour={colour ?? "none"}
                 aria-label={colour ? `${letter}, ${colour === "green" ? "correct" : colour === "yellow" ? "in the word" : "not in the word"}` : letter}
-                className={`${base} semibold-text-md flex-1 ${colour ? keyClassesByColour[colour] : keyClassesIdle}`}
+                className={`${base} bold-text-md flex-1 ${colour ? keyClassesByColour[colour] : keyClassesIdle}`}
                 disabled={disabled}
                 onClick={() => onLetter(letter)}
               >
@@ -61,7 +61,7 @@ export function Keyboard({ colours: latest, onLetter, onEnter, onBackspace, disa
             );
           })}
           {i === 2 && (
-            <button type="button" className={`${base} ${keyClassesIdle} semibold-text-xs flex-[1.5] px-1`} aria-label="Backspace" disabled={disabled} onClick={onBackspace}>
+            <button type="button" className={`${base} ${keyClassesIdle} bold-text-xs flex-[1.5] px-1`} aria-label="Backspace" disabled={disabled} onClick={onBackspace}>
               ⌫
             </button>
           )}

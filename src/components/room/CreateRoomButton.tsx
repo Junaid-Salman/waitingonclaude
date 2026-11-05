@@ -3,20 +3,20 @@
 import { buttonClasses, focusClasses } from "@/lib/colors";
 import { useCreateRoom } from "./useCreateRoom";
 
-export function CreateRoomButton({ label = "Create room" }: { label?: string }) {
+export function CreateRoomButton({ label = "Create room", small = false, wide = false }: { label?: string; small?: boolean; wide?: boolean }) {
   const { create, busy, error } = useCreateRoom();
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className={`relative flex flex-col gap-2 ${wide ? "w-full sm:w-auto" : "items-center"}`}>
       <button
         type="button"
         onClick={create}
         disabled={busy}
-        className={`semibold-text-md rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}
+        className={`${small ? "bold-text-sm px-3.5 py-2" : "bold-text-md px-5 py-3"} rounded-xl disabled:opacity-50 ${buttonClasses} ${focusClasses}`}
       >
         {busy ? "Creating…" : label}
       </button>
       {error && (
-        <p role="alert" className="regular-text-sm text-center">
+        <p role="alert" className={`bold-text-sm text-invalid ${small ? "absolute top-full right-0 mt-1 whitespace-nowrap" : "text-center"}`}>
           {error}
         </p>
       )}

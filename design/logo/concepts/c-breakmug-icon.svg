@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-8 -8 116 116">
+<g id="symbol">
+  <path fill="#3F6948" d="M20 44H54A14 14 0 0 1 68 58V82A14 14 0 0 1 54 96H20A14 14 0 0 1 6 82V58A14 14 0 0 1 20 44Z"/>
+  <path fill="#3F6948" fill-rule="evenodd" d="M63 70a14 14 0 1 0 28 0a14 14 0 1 0 -28 0ZM71 70a6 6 0 1 0 12 0a6 6 0 1 0 -12 0Z"/>
+  <circle cx="24" cy="30" r="6" fill="#E0214D"/><circle cx="40" cy="20" r="7" fill="#E0214D"/><circle cx="58" cy="9" r="8" fill="#E0214D"/></g>
+</svg>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { buttonClasses } from "@/lib/colors";
+import { buttonClasses, focusClasses } from "@/lib/colors";
 import { connectSolo, type SoloConnection } from "@/lib/woordle/solo-client";
 import { useKeyboardInput } from "@/lib/woordle/use-keyboard-input";
 import { useWoordle } from "@/lib/woordle/store";
@@ -32,10 +32,17 @@ export function SoloGame() {
   const finished = status === "won" || status === "lost";
 
   return (
-    <div className="flex w-full flex-1 flex-col gap-4 px-4 py-6">
-      <h1 className="semibold-display-xs text-center tracking-tight">Woordle</h1>
+    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-3 px-4 py-3 sm:gap-4 sm:py-6">
+      {/* Under 740 px of height (short phones, small laptop windows) the title bar goes to screen
+          readers only, so the board and keyboard still fit below the header. */}
+      <div className="flex items-center justify-between [@media(max-height:739px)]:sr-only">
+        <h1 className="extrabold-display-xs font-display">Solo</h1>
+        <span className="bold-text-xs rounded-full border-2 border-foreground bg-sunken px-2.5 py-0.5">
+          {rows.length}/{maxGuesses}
+        </span>
+      </div>
 
-      <p role="status" aria-live="polite" className="regular-text-sm min-h-6 text-center">
+      <p role="status" aria-live="polite" className={`bold-text-sm min-h-6 text-center ${message && status === "playing" ? "text-invalid" : ""}`}>
         {status === "connecting" && !message ? "Connecting…" : message}
       </p>
 
@@ -43,7 +50,7 @@ export function SoloGame() {
 
       {finished ? (
         <div className="mx-auto flex flex-col items-center gap-3 text-center" data-testid="end-panel">
-          <p className="medium-text-lg">
+          <p className="bold-text-lg">
             {status === "won" ? `You got it in ${rows.length}!` : "Out of guesses."}
           </p>
           {status === "lost" && answer && (
@@ -53,7 +60,7 @@ export function SoloGame() {
           )}
           <button
             type="button"
-            className={`semibold-text-md rounded px-4 py-2 ${buttonClasses}`}
+            className={`bold-text-md rounded-xl px-5 py-3 ${buttonClasses} ${focusClasses}`}
             onClick={() => connection.current?.send({ type: "newGame" })}
           >
             Play again
@@ -62,6 +69,6 @@ export function SoloGame() {
       ) : (
         <Keyboard colours={keyColours} onLetter={onLetter} onEnter={onEnter} onBackspace={onBackspace} />
       )}
-    </div>
+    </main>
   );
 }

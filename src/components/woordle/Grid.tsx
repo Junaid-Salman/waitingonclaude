@@ -17,10 +17,11 @@ interface Props {
 
 export function Grid({ rows, input, maxGuesses, shake = 0, solvedRow = null }: Props) {
   // Six rows of square tiles: on a short phone the grid shrinks with the screen height too, so the
-  // keyboard (about 21rem with the title and status line) stays on screen. It never goes below
+  // keyboard stays on screen. The 21rem budget covers the site header, the status line, the keyboard
+  // and the gaps (the solo title bar is hidden below 740 px of height). It never goes below
   // 12rem (tiles about 36 px): on a shorter screen, such as a phone on its side, the page scrolls.
   return (
-    <div role="group" aria-label="Guesses" className="mx-auto grid w-full max-w-[clamp(12rem,calc((100dvh_-_21rem)*5/6),20rem)] gap-1.5">
+    <div role="group" aria-label="Guesses" className="mx-auto grid w-full max-w-[clamp(12rem,calc((100dvh_-_21rem)*5/6),20rem)] gap-1.5 sm:gap-2">
       {Array.from({ length: maxGuesses }, (_, r) => {
         const row = rows[r];
         const typing = !row && r === rows.length;
@@ -32,7 +33,7 @@ export function Grid({ rows, input, maxGuesses, shake = 0, solvedRow = null }: P
           return (
             <motion.div
               key={`shake-${shake}`}
-              className="grid grid-cols-5 gap-1.5"
+              className="grid grid-cols-5 gap-1.5 sm:gap-2"
               data-row={r}
               animate={{ x: [0, -8, 8, -6, 6, -3, 0] }}
               transition={{ duration: 0.4 }}
@@ -42,7 +43,7 @@ export function Grid({ rows, input, maxGuesses, shake = 0, solvedRow = null }: P
           );
         }
         return (
-          <div key={r} className="grid grid-cols-5 gap-1.5" data-row={r}>
+          <div key={r} className="grid grid-cols-5 gap-1.5 sm:gap-2" data-row={r}>
             {tiles}
           </div>
         );

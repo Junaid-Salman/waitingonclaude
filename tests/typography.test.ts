@@ -7,7 +7,7 @@ describe("tailwind config", () => {
 
   test("generates every weight at every step", () => {
     expect(Object.keys(classes)).toHaveLength(Object.keys(typographyWeights).length * Object.keys(typographyScale).length);
-    expect(Object.keys(classes)).toHaveLength(44);
+    expect(Object.keys(classes)).toHaveLength(60); // 5 weights x 12 steps
   });
 
   test.each([
@@ -17,6 +17,7 @@ describe("tailwind config", () => {
     [".medium-text-lg", "500", "1.125rem", "1.75rem"],
     [".regular-text-md", "400", "1rem", "1.5rem"],
     [".semibold-text-xs", "600", "0.75rem", "1.125rem"],
+    [".extrabold-display-3xl", "800", "5rem", "5.25rem"],
   ])("%s", (name, fontWeight, fontSize, lineHeight) => {
     expect(classes[name]).toEqual({ fontWeight, fontSize, lineHeight });
   });
@@ -33,9 +34,9 @@ describe("tailwind config", () => {
     for (const [token, value] of Object.entries(colours)) expect(value).toBe(`var(--${token})`);
   });
 
-  test("fonts use the Geist variables set by next/font", () => {
+  test("fonts use the variables set by next/font (Figtree for text, Bricolage Grotesque for display)", () => {
     const fonts = config.theme?.extend?.fontFamily as Record<string, string[]>;
-    expect(fonts.sans[0]).toBe("var(--font-geist-sans)");
-    expect(fonts.mono[0]).toBe("var(--font-geist-mono)");
+    expect(fonts.sans[0]).toBe("var(--font-sans)");
+    expect(fonts.display[0]).toBe("var(--font-display)");
   });
 });

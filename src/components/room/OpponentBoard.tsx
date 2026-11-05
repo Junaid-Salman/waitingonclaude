@@ -20,28 +20,28 @@ export function OpponentBoard({ id, name, rows, solvedMs, left, away }: Props) {
       data-testid="opponent"
       data-id={id}
       aria-label={`${name}: ${status}${left ? ", left the match" : away ? ", reconnecting" : ""}`}
-      className={`flex flex-col gap-2 rounded border-2 border-tile-border p-2 ${left ? "opacity-60" : ""}`}
+      className="flex min-w-0 flex-col gap-2 rounded-[14px] border-2 border-foreground bg-surface p-3"
     >
-      <div className="flex flex-col items-start gap-1">
-        <span className="medium-text-sm max-w-full truncate">{name}</span>
-        {left ? (
-          <span className="regular-text-xs text-muted">Left</span>
-        ) : away ? (
-          <span className="regular-text-xs text-muted">Reconnecting…</span>
-        ) : solvedMs !== null ? (
-          <span className={`semibold-text-xs rounded px-2 py-0.5 ${solvedBadgeClasses}`}>Solved {formatDuration(solvedMs)}</span>
-        ) : null}
-      </div>
-      <div aria-hidden="true" className="flex flex-col gap-0.5">
+      <span className="bold-text-sm max-w-full truncate">{name}</span>
+      {/* Away or left: only the colours dim; the name and status keep full contrast (M4). */}
+      <div aria-hidden="true" className={`flex flex-col gap-[3px] ${left || away ? "opacity-60" : ""}`}>
         {Array.from({ length: MAX_GUESSES }, (_, r) => (
-          <div key={r} className="flex gap-0.5">
+          <div key={r} className="flex gap-[3px]">
             {Array.from({ length: WORD_LENGTH }, (_, c) => {
               const colour = rows[r]?.[c];
-              return <span key={c} data-state={colour ?? "empty"} className={`size-3 rounded-sm ${colour ? miniTileClassesByColour[colour] : miniTileEmptyClasses}`} />;
+              return <span key={c} data-state={colour ?? "empty"} className={`size-3 rounded-[3px] ${colour ? miniTileClassesByColour[colour] : miniTileEmptyClasses}`} />;
             })}
           </div>
         ))}
       </div>
+      {/* Nothing while playing: the card then holds the name and the colours only. */}
+      {left ? (
+        <span className="regular-text-xs text-muted">Left</span>
+      ) : away ? (
+        <span className="regular-text-xs text-muted">Reconnecting…</span>
+      ) : solvedMs !== null ? (
+        <span className={`bold-text-xs self-start rounded-full px-2 py-0.5 ${solvedBadgeClasses}`}>Solved {formatDuration(solvedMs)}</span>
+      ) : null}
     </li>
   );
 }

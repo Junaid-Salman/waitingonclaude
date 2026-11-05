@@ -6,7 +6,8 @@ import { MAX_GUESSES } from "../../../shared/protocol";
 import { connectChallenge, type ChallengeConnection } from "@/lib/challenge/challenge-client";
 import { isPlausibleToken } from "@/lib/challenge/link";
 import { isDone, useChallenge } from "@/lib/challenge/store";
-import { buttonClasses, focusClasses, secondaryButtonClasses } from "@/lib/colors";
+import { buttonClasses, cardClasses, focusClasses, hostBadgeClasses, secondaryButtonClasses } from "@/lib/colors";
+import { LetterTiles } from "@/components/woordle/LetterTiles";
 import { formatCountdown, formatDuration, remainingMs } from "@/lib/room/clock";
 import { useFocusOnMount } from "@/lib/use-focus-on-mount";
 import { useNow } from "@/lib/use-now";
@@ -26,19 +27,19 @@ function Reveal() {
   if (!roundEnd) return null;
   const last = roundEnd.round >= totalRounds;
   return (
-    <section aria-label="Round result" data-testid="round-summary" className="flex flex-col gap-3">
-      <h2 ref={heading} tabIndex={-1} className="semibold-display-xs outline-none">
+    <section aria-label="Round result" data-testid="round-summary" className={`flex w-full max-w-lg flex-col items-center gap-3 p-5 text-center sm:p-8 ${cardClasses}`}>
+      <h2 ref={heading} tabIndex={-1} className="bold-text-xs tracking-wider text-muted uppercase outline-none">
         Word {roundEnd.round} of {totalRounds}
       </h2>
-      <p className="regular-text-md">
-        The word was <strong data-testid="round-answer" className="uppercase">{roundEnd.answer}</strong>.
+      <p>
+        <LetterTiles letters={roundEnd.answer} label={`The word was ${roundEnd.answer.toUpperCase()}.`} testId="round-answer" />
       </p>
-      <p className="regular-text-md">
+      <p className={`extrabold-display-xs font-display ${roundEnd.solvedMs !== null ? "text-success" : ""}`}>
         {roundEnd.solvedMs !== null
           ? `Solved in ${formatDuration(roundEnd.solvedMs)} with ${roundEnd.guesses} ${roundEnd.guesses === 1 ? "guess" : "guesses"}.`
           : "Not solved."}
       </p>
-      <p className="regular-text-sm text-muted" data-testid="next-countdown">
+      <p className="bold-text-sm text-muted" data-testid="next-countdown">
         {last ? "Results in " : "Next word in "}
         {now === 0 ? "…" : formatCountdown(remainingMs(roundEnd.nextAt, now, offset))}
       </p>
@@ -94,42 +95,56 @@ export function ChallengeGame({ token }: { token: string }) {
 
   if (state.stage === "expired") {
     return (
-      <div className="flex flex-col items-start gap-4" data-testid="challenge-expired">
-        <h1 className="semibold-display-xs">This challenge link has expired</h1>
+      <div className={`flex w-full max-w-md flex-col items-start gap-4 p-5 sm:p-8 ${cardClasses}`} data-testid="challenge-expired">
+        <h1 className="extrabold-display-sm font-display">This challenge link has expired</h1>
         <p className="regular-text-md text-muted">The link is broken, was cut short, or the challenge was retired.</p>
-        <Link href="/woordle/challenge/new" className={`semibold-text-md rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
-          Make your own
+        <Link href="/woordle/challenge/new" className={`bold-text-md rounded-xl px-5 py-3 ${secondaryButtonClasses} ${focusClasses}`}>
+          Make your own challenge
         </Link>
       </div>
     );
   }
   if (state.stage === "unavailable") {
     return (
-      <div className="flex flex-col items-start gap-4" data-testid="challenge-unavailable">
-        <h1 className="semibold-display-xs">Challenges are unavailable right now</h1>
+      <div className={`flex w-full max-w-md flex-col items-start gap-4 p-5 sm:p-8 ${cardClasses}`} data-testid="challenge-unavailable">
+        <h1 className="extrabold-display-sm font-display">Challenges are unavailable right now</h1>
         <p className="regular-text-md text-muted">Try this link again in a little while.</p>
-        <Link href="/woordle" className={`semibold-text-md rounded px-4 py-2 ${secondaryButtonClasses} ${focusClasses}`}>
+        <Link href="/woordle" className={`bold-text-md rounded-xl px-5 py-3 ${secondaryButtonClasses} ${focusClasses}`}>
           Back to Woordle
         </Link>
       </div>
     );
   }
+  // The start and error screens show a visible h1; the run itself gets this one (L2).
+  const title = <h1 className="sr-only">Woordle challenge</h1>;
   if (state.stage === "finished" && state.summary) {
-    return <ChallengeSummary summary={state.summary} onPlayAgain={begin} />;
+    return (
+      <>
+        {title}
+        <ChallengeSummary summary={state.summary} onPlayAgain={begin} />
+      </>
+    );
   }
-  if (state.stage === "reveal") return <Reveal />;
+  if (state.stage === "reveal")
+    return (
+      <>
+        {title}
+        <Reveal />
+      </>
+    );
 
   if (state.stage === "playing") {
     const done = isDone(state);
     return (
-      <div className="flex flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-lg flex-col gap-3 sm:gap-4">
+        {title}
         <div className="flex items-center justify-between gap-4">
-          <h2 className="semibold-text-lg" data-testid="round-label">
+          <h2 className="extrabold-display-xs font-display" data-testid="round-label">
             Word {state.round} of {state.totalRounds}
           </h2>
           <RoundTimer endsAt={state.endsAt} offset={state.offset} />
         </div>
-        <p role="status" aria-live="polite" className="regular-text-sm min-h-5 text-center">
+        <p role="status" aria-live="polite" className={`bold-text-sm min-h-5 text-center ${state.solvedMs !== null ? "text-success" : done ? "" : "text-invalid"}`}>
           {state.solvedMs !== null ? `Solved in ${formatDuration(state.solvedMs)}!` : done ? "Out of guesses." : state.message}
         </p>
         <Grid rows={state.rows} input={state.input} maxGuesses={MAX_GUESSES} shake={state.rejections} solvedRow={state.solvedMs !== null ? state.rows.length - 1 : null} />
@@ -139,19 +154,20 @@ export function ChallengeGame({ token }: { token: string }) {
   }
 
   return (
-    <div className="flex flex-col items-start gap-4">
-      <h1 className="semibold-display-xs">Woordle challenge</h1>
-      <p className="regular-text-md">
+    <div className={`flex w-full max-w-md flex-col items-center gap-4 p-5 text-center sm:p-8 ${cardClasses}`}>
+      <span className={`bold-text-xs rounded-full px-2.5 py-0.5 ${hostBadgeClasses}`}>Sealed link</span>
+      <h1 className="extrabold-display-sm sm:extrabold-display-lg font-display">Woordle challenge</h1>
+      <p className="regular-text-md text-muted">
         Someone sent you 5 words. Solve each one before its timer runs out. Each word is revealed when its round ends.
       </p>
-      <p role="status" aria-live="polite" className="regular-text-sm min-h-5">
+      <p role="status" aria-live="polite" className="bold-text-sm min-h-5">
         {state.stage === "connecting" ? "Connecting…" : state.message}
       </p>
       <button
         type="button"
         onClick={begin}
         disabled={state.stage === "connecting"}
-        className={`semibold-text-md rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}
+        className={`bold-text-md self-stretch rounded-xl px-5 py-3 disabled:opacity-50 ${buttonClasses} ${focusClasses}`}
       >
         Start
       </button>

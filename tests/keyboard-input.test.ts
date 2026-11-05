@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { keyAction } from "../src/lib/woordle/use-keyboard-input";
+import { keyAction, ownsKey } from "../src/lib/woordle/use-keyboard-input";
 
 const key = (k: string, extra: Partial<{ repeat: boolean; ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) => ({
   key: k,
@@ -30,5 +30,33 @@ describe("physical keyboard", () => {
     expect(keyAction(key("Enter", { metaKey: true }))).toBeNull();
     expect(keyAction(key("1"))).toBeNull();
     expect(keyAction(key("Tab"))).toBeNull();
+  });
+});
+
+// A stand-in for an event target: `matches` lists the selectors its closest() would find.
+const target = (...matches: string[]) => ({
+  closest: (selector: string) => (selector.split(",").some((s) => matches.includes(s.trim())) ? {} : null),
+});
+
+describe("who owns a key press (M1, N1)", () => {
+  test("the page itself: the board takes every key", () => {
+    for (const key of ["Enter", "c", "Backspace"]) {
+      expect(ownsKey(target(), key)).toBe(true);
+      expect(ownsKey(null, key)).toBe(true);
+    }
+  });
+
+  test("an on-screen key: the board takes it, so Enter never also clicks the key", () => {
+    expect(ownsKey(target("[data-board-keyboard]", "button"), "Enter")).toBe(true);
+  });
+
+  test.each(["a", "button", "summary", "[role=button]"])("a focused %s keeps Enter, but letters and Backspace still reach the board", (sel) => {
+    expect(ownsKey(target(sel), "Enter")).toBe(false);
+    expect(ownsKey(target(sel), "c")).toBe(true);
+    expect(ownsKey(target(sel), "Backspace")).toBe(true);
+  });
+
+  test.each(["input", "textarea", "select", "[contenteditable]", "dialog"])("typing in a %s keeps every key", (sel) => {
+    for (const key of ["Enter", "c", "Backspace"]) expect(ownsKey(target(sel), key)).toBe(false);
   });
 });

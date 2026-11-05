@@ -9,10 +9,13 @@ export const typographyWeights = {
   medium: "500",
   semibold: "600",
   bold: "700",
+  // Bricolage Grotesque ExtraBold, the display face of design C.
+  extrabold: "800",
 } as const;
 
 // Class names are `<weight>-<scale step>`, for example `semibold-display-sm` or `regular-text-md`.
 export const typographyScale = {
+  "display-3xl": { fontSize: "5rem", lineHeight: "5.25rem" },
   "display-2xl": { fontSize: "4.5rem", lineHeight: "5.625rem" },
   "display-xl": { fontSize: "3.75rem", lineHeight: "4.5rem" },
   "display-lg": { fontSize: "3rem", lineHeight: "3.75rem" },
@@ -47,10 +50,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: colourUtilities,
-      // The Geist variables are set by next/font in src/app/layout.tsx.
+      // The font variables are set by next/font in src/app/layout.tsx (self-hosted at build time).
       fontFamily: {
-        sans: ["var(--font-geist-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["var(--font-geist-mono)", "ui-monospace", "monospace"],
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["var(--font-display)", "var(--font-sans)", "ui-sans-serif", "sans-serif"],
+      },
+      // Hard offset shadows of the game pieces. Their colour is the --shadow token, which is the
+      // background colour in the dark theme, so they drop away there.
+      boxShadow: {
+        piece: "3px 3px 0 0 var(--shadow)",
+        "piece-key": "0 3px 0 0 var(--shadow)",
+        "piece-lg": "6px 6px 0 0 var(--shadow)",
+        "piece-pressed": "1px 1px 0 0 var(--shadow)",
       },
     },
   },

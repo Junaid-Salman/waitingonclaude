@@ -18,7 +18,8 @@ interface Props {
 
 export function Tile({ letter, colour, index = 0, bounce = false }: Props) {
   const label = letter ? `${letter.toUpperCase()}, ${colour ? labels[colour] : "not yet guessed"}` : "empty";
-  const classes = `flex aspect-square items-center justify-center rounded border-2 bold-display-xs uppercase sm:bold-display-sm ${
+  // Design C: an ink-outlined piece with a hard shadow (light theme); letters in the display face.
+  const classes = `flex aspect-square items-center justify-center rounded-lg border-[2.5px] font-display extrabold-display-xs uppercase sm:extrabold-display-sm ${
     colour ? tileClassesByColour[colour] : letter ? tileClassesUnscored.typed : tileClassesUnscored.empty
   }`;
   const common = { role: "img", "aria-label": label, "data-state": colour ?? (letter ? "typed" : "empty"), className: classes };

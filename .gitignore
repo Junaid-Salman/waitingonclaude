@@ -53,3 +53,8 @@ rules.md
 /test-results/
 /playwright-report/
 .claude/handoffs/
+
+# Design working files (proof sheets, build scripts output, duplicate zip of design/logo/kit)
+design/logo/work/
+design/logo/kit.zip
+design/figma/shots/

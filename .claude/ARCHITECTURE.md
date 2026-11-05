@@ -19,8 +19,9 @@ Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScri
 | 2 Rooms | Create/join by link, lobby, host, cap, takeover | Done, committed |
 | 3 Time Race | Rounds, timers, ranking, `start`/`playAgain`, opponent boards | Done, committed |
 | 4 Challenge | AES-GCM link, solver session, creator form | Done, committed |
-| 5 Polish | 60 s reconnect grace, Leave, rate limits, animations, mobile | Built, awaiting sign-off (not committed) |
-| 6 Launch | Deploy, playtest | Not started |
+| 5 Polish | 60 s reconnect grace, Leave, rate limits, animations, mobile | Done, committed (`3a2553d`), awaiting sign-off |
+| 6 UI design | Logo, Figma design (C · Game night), redesigned UI in both themes | Approved 2026-11-06; deferred issues in `.claude/Deffered Issues.md` |
+| 7 Launch | Deploy, playtest | Not started |
 
 Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/Plans/`, one review in `.claude/Reviews/`.
 
@@ -72,16 +73,18 @@ party/                     SERVER. Never imported by src/ (ESLint-enforced)
   e2e/                     test-only server entries: fixed answers, injected round limits (2 min 1.2 s, 3 min 20 s, 5 min 3 s), 5 s grace, raised per-IP limits (no test branch in production code)
 src/                       FRONTEND (browser)
   app/                     /, /woordle, /woordle/solo, /woordle/room/[code], /woordle/challenge/new, /woordle/challenge/[token], layout, globals.css
-  components/{woordle,room,challenge}/   UI
+  app/icon.svg apple-icon.png favicon.ico opengraph-image.png manifest.ts   icons and metadata (from design/logo/kit)
+  components/{woordle,room,challenge,home}/   UI; Logo.tsx + logo-paths.ts (inline SVG logo), SiteHeader.tsx (header outside rooms)
   lib/colors.ts            ONLY place a colour value is written
   lib/party-host.ts        PartyKit host + http/https choice
-  lib/room/                session.ts, create-room.ts, store.ts, room-client.ts
+  lib/room/                session.ts, create-room.ts, store.ts, room-client.ts, join-code.ts (home "Have a code?" box, pure)
   lib/woordle/             store.ts, solo-client.ts, keyboard.ts
   lib/challenge/           store.ts, challenge-client.ts, seal-client.ts, link.ts (isPlausibleToken), form.ts (pure form rules)
-tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables
+tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables, shadow-piece tokens
+design/                    tokens.json (design source of truth, mirrored by colors.ts), briefs/, logo/{masters,kit,concepts}, figma/ (plugin scripts). logo/work and kit.zip are git-ignored
 scripts/                   build-wordlists.mjs, check-bundle.mjs, answers-exclude.txt
-tests/                     Vitest (38 files, 604 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
-e2e/                       Playwright (7 specs, 58 tests: + resilience, mobile), shared player helpers in e2e/helpers.ts
+tests/                     Vitest (44 files, 724 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
+e2e/                       Playwright (8 specs, 63 tests: + resilience, mobile), shared player helpers in e2e/helpers.ts
 partykit.json              production parties: main, challenge, solo
 partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer, challenge -> scaled limits; vars.CHALLENGE_KEY is a fixed test-only key
 ```
@@ -140,8 +143,11 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 
 ## 7. Design tokens (enforced by `tests/design-tokens.test.ts`)
 
-- Colours: only in `src/lib/colors.ts` (`palette`, light/dark `themes`, class maps). `tailwind.config.ts` turns them into CSS variables and utilities (`bg-tile-correct`, `text-muted`).
-- Type: only the generated classes `<regular|medium|semibold|bold>-<display-2xl..xs|text-xl..xs>` (for example `semibold-display-sm`, `regular-text-md`). Fonts are Geist via `font-sans` (set on `<body>`).
+- Colours: only in `src/lib/colors.ts` (`palette`, light/dark `themes`, class maps). `tailwind.config.ts` turns them into CSS variables and utilities (`bg-tile-correct`, `text-muted`, `fill-accent`, `stroke-primary`). The values mirror `design/tokens.json`; `tests/contrast.test.ts` fails if the two drift or any text pair drops below 4.5:1 (UI parts 3:1) in either theme. Green text uses `success`, not `tile-correct` (too dim as small text in dark).
+- Type: only the generated classes `<regular|medium|semibold|bold|extrabold>-<display-3xl..xs|text-xl..xs>`. Fonts (next/font, self-hosted): Figtree via `font-sans` on `<body>`; Bricolage Grotesque via `font-display` plus an `extrabold-display-*` class for headings, tiles and the logo-like titles.
+- Design C pieces: ink outlines (`border-[2.5px] border-foreground`) and hard shadows `shadow-piece` / `shadow-piece-key` / `shadow-piece-lg` / `shadow-piece-pressed`, coloured by the `--shadow` token (ink in light, the background in dark, so they vanish there). Prefer the class maps in `colors.ts` (`buttonClasses`, `cardClasses`, `rowClasses`, `keyPieceClasses`, ...) over writing the pieces by hand.
+- The one hex exception is `src/app/icon.svg`, a static favicon file (owner Q16, Sub-phase 6.1); it uses `brand.green` and `brand.red`. The design-token scan skips `.svg`.
+- `tests/contrast.test.ts` checks token pairs and also reads the outline classes from the class maps (input outline, yellow mini cell), so a changed class cannot drop below 3:1 unnoticed. Dimmed text is checked where it is drawn (e2e asserts an away opponent card stays at opacity 1; only its colours dim).
 - Never write hex values, `text-white`, `text-sm`, or `font-bold` in `src/`. A new colour is a new token with both a light and a dark value.
 - Tailwind 4 loads the JS config through `@config` in `src/app/globals.css`; there is no `content` list.
 - Tailwind scans only `src/` (`@import "tailwindcss" source("../")`). Without that it also scanned tests and `.claude/` docs, which quote banned classes on purpose, and emitted dead utilities like `.text-white`. If a class you added renders unstyled, check that it appears in a file under `src/`.
@@ -151,7 +157,7 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 ```bash
 npm run dev            # Next :3000 + PartyKit :1999
 npm run lint           # eslint .
-npm test               # Vitest, 604 tests, ~3 s
+npm test               # Vitest, 724 tests, ~4 s
 npm run test:e2e       # Playwright; starts its own servers, STOP npm run dev FIRST
 npm run build && npm run check:bundle   # word data must not reach .next/static
 ```
@@ -182,6 +188,10 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | Pure session + injected clock | `challenge/session.ts` takes `{clock, send}`; tests use `tests/helpers/fake-clock.ts`. Do not call `setTimeout` in it |
 | `CHALLENGE_KEY` handling | Read only from `room.env` in `party/`; missing or not 32 bytes fails closed. e2e gets a fixed test key from `partykit.e2e.json` `vars` |
 | Challenge links and word-list rebuilds | Regenerating the lists can remove a sealed word; `begin` then answers `invalid-token` (link expired) |
+| Board keys vs focused controls | `useKeyboardInput` asks `ownsKey(target, key)`. The page and the on-screen keyboard (`[data-board-keyboard]`) give every key to the board. Text fields (`input`, `textarea`, `select`, `[contenteditable]`) and dialogs keep every key. A focused `a`, `button`, `summary` or `[role=button]` keeps only Enter, so letters still type after a dialog returns focus to Leave room. While any `dialog[open]` exists the board takes nothing (6.1 M1, N1, N2). A new custom control (e.g. a `tabindex` widget) must be added to these selectors |
+| Leaving mid-round asks first | `needsLeaveConfirm` (`src/lib/room/leave.ts`): while a match round is played or revealed, Leave room and the room-header logo open `LeaveConfirm` (native `<dialog>`, never `window.confirm`). Lobby and final results leave at once (owner Q13) |
+| Restyling must keep e2e anchors | Opponent cards hold only the name while playing (`toHaveText("Ali")`); the lobby name span keeps `min-w-0`; solo has exactly one `role="status"`; one Create room button per page (the header hides its own on `/` and `/woordle`); keep every `data-testid` and checked string |
+| Figma Starter plan limits | One mode per variable collection (so Color holds `light/*` and `dark/*`), 3 pages per file. Design file: https://www.figma.com/design/dERC4j6dYLzrCOiCvLinVj |
 | e2e guesses must be paced | The server allows 2 guesses/s per player; `submitPaced` in `e2e/helpers.ts` spaces Enter presses 600 ms apart (measured between submits, not typing starts) |
 | e2e drops a socket on demand | `page.routeWebSocket` with `connectToServer()`, then close both sides and refuse reconnects (`resilience.spec.ts`, Leave while reconnecting). Grace constants come from `party/e2e/answers.ts` |
 | e2e is a production build | `npm run test:e2e` runs `next build` first (about 30 s); a changed `src/` file needs no dev server. Leave `npm run dev` stopped |

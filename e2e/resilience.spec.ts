@@ -71,6 +71,10 @@ test("a player who drops holds the round open for the grace, then is Left and th
   const { ali, bo } = await startedMatch(browser);
   await bo.context().close();
   await expect(ali.getByTestId("opponent")).toContainText("Reconnecting…");
+  // Only the colours dim for an away player; the name and the status keep full contrast (M4).
+  const card = ali.getByTestId("opponent");
+  expect(await card.evaluate((e) => getComputedStyle(e).opacity)).toBe("1");
+  expect(await card.locator('[aria-hidden="true"]').first().evaluate((e) => getComputedStyle(e).opacity)).toBe("0.6");
   // Ali is told of the drop when the server starts Bo's grace: time the check from here, not from
   // the close, so a slow machine cannot eat the margin.
   const graceSeenAt = Date.now();
@@ -177,4 +181,111 @@ test("while reconnecting, host controls are disabled and Leave still leaves; the
   // And the tab forgot the room: going back asks for a name again instead of walking in.
   await ali.goto(`/woordle/room/${code}`);
   await expect(ali.getByLabel("Your name")).toBeVisible();
+});
+
+test("mid-match, leaving asks first: Stay and Escape keep the seat, Leave match frees it at once (Q13)", async ({ browser }) => {
+  const { ali, bo } = await startedMatch(browser); // the default round lasts 20 s in e2e
+  const dialog = bo.getByRole("dialog", { name: "Leave the match?" });
+
+  // Enter on the focused button opens the dialog: the board does not swallow it (M1).
+  await bo.getByRole("button", { name: "Leave room" }).focus();
+  await bo.keyboard.press("Enter");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Stay" })).toBeFocused();
+  await dialog.getByRole("button", { name: "Stay" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(roundLabel(bo)).toHaveText("Round 1 of 5");
+  // Focus is back on Leave room, and typing still reaches the board (N1).
+  await bo.keyboard.type("cr");
+  await expect(bo.locator('[data-row="0"] [data-state="typed"]')).toHaveCount(2);
+
+  await bo.getByRole("button", { name: "Leave room" }).click();
+  await expect(dialog).toBeVisible();
+  // Keys pressed while the dialog is open never reach the board behind it, even with focus off
+  // its buttons (N2).
+  await dialog.getByText("You'll lose your seat").click();
+  // Some browsers drop focus to <body> on such a click; force that case, the one the guard is for.
+  await bo.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await bo.keyboard.type("an");
+  await bo.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(bo.locator('[data-row="0"] [data-state="typed"]')).toHaveCount(2);
+  await bo.getByRole("button", { name: "Leave room" }).click();
+  await expect(dialog).toBeVisible();
+  await bo.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(ali.getByTestId("opponent")).not.toContainText("Left");
+
+  // The logo is a way out too, so it asks the same question.
+  await bo.getByRole("link", { name: "WaitingOnClaude home" }).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Leave match" }).click();
+  await bo.waitForURL(/\/$/);
+  // Freed at once: well inside the 5 s grace a plain drop would hold the seat for.
+  await expect(ali.getByTestId("opponent")).toContainText("Left", { timeout: 3000 });
+});
+
+for (const width of [320, 375]) test(`on a ${width} px phone, the Leave hint and the reconnecting line never overlap, and nothing scrolls sideways (M2, N4)`, async ({ browser }) => {
+  const ali = await (await browser.newContext({ viewport: { width, height: 667 }, hasTouch: true, isMobile: true })).newPage();
+  const bo = await newPlayer(browser);
+  let cut = false;
+  const links: { page: WebSocketRoute; server: WebSocketRoute }[] = [];
+  await ali.routeWebSocket(/\/parties\/main\//, (ws) => {
+    if (cut) return void ws.close();
+    links.push({ page: ws, server: ws.connectToServer() });
+  });
+  const code = await createRoom(ali, "Ali");
+  await joinRoom(bo, code, "Bo");
+  await expect.poll(() => playerNames(ali)).toEqual(["Ali", "Bo"]);
+  cut = true;
+  for (const link of links) {
+    await link.server.close();
+    await link.page.close();
+  }
+  const hint = ali.getByTestId("leave-hint"), status = ali.getByTestId("connection-status");
+  await expect(status).toContainText("Reconnecting…");
+  await expect(hint).toBeVisible();
+  const [a, b] = [await hint.boundingBox(), await status.boundingBox()];
+  const overlap = a!.x < b!.x + b!.width && b!.x < a!.x + a!.width && a!.y < b!.y + b!.height && b!.y < a!.y + a!.height;
+  expect(overlap).toBe(false);
+  expect(await ali.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+
+// Next keeps pages you navigate away from mounted but hidden (cacheComponents / React Activity),
+// so leaving and Back must not leave state behind.
+test("Back while Leave the match? is open leaves no dialog behind: the next board still types", async ({ browser }) => {
+  const { bo } = await startedMatch(browser);
+  await bo.getByRole("button", { name: "Leave room" }).click();
+  await expect(bo.getByRole("dialog", { name: "Leave the match?" })).toBeVisible();
+  await bo.goBack();
+  await bo.waitForURL(/\/woordle$/);
+  await bo.getByRole("link", { name: "Play solo" }).click();
+  await bo.waitForURL(/\/woordle\/solo$/);
+  await expect(bo.getByRole("status")).toHaveText("");
+  await bo.keyboard.type("cr");
+  await expect(bo.locator('[data-row="0"] [data-state="typed"]')).toHaveCount(2);
+});
+
+test("after leaving, Back asks for a name instead of walking back in, and Leave works again", async ({ browser }) => {
+  const ali = await newPlayer(browser);
+  const bo = await newPlayer(browser);
+  const code = await createRoom(ali, "Ali");
+  await bo.goto("/woordle");
+  await bo.goto(`/woordle/room/${code}`);
+  await bo.getByLabel("Your name").fill("Bo");
+  await bo.getByRole("button", { name: "Join" }).click();
+  await expect.poll(() => playerNames(ali)).toEqual(["Ali", "Bo"]);
+  await bo.getByRole("button", { name: "Leave room" }).click(); // lobby: no dialog
+  await bo.waitForURL(/\/woordle$/);
+  await expect.poll(() => playerNames(ali)).toEqual(["Ali"]);
+  await bo.goBack();
+  await bo.waitForURL(new RegExp(`/woordle/room/${code}$`));
+  await expect(bo.getByLabel("Your name")).toHaveValue("Bo"); // asked, prefilled, not rejoined
+  expect(await playerNames(ali)).toEqual(["Ali"]);
+  await bo.getByRole("button", { name: "Join" }).click();
+  await expect.poll(() => playerNames(ali)).toEqual(["Ali", "Bo"]);
+  await bo.getByRole("button", { name: "Leave room" }).click();
+  await bo.waitForURL(/\/woordle$/);
+  await expect.poll(() => playerNames(ali)).toEqual(["Ali"]);
 });

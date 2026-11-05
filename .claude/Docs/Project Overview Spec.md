@@ -63,7 +63,7 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 
 | Module | Location | Responsibility |
 | --- | --- | --- |
-| Platform shell | `src/app/page.tsx`, `src/app/layout.tsx` | Home page, game list, footer disclaimer |
+| Platform shell | `src/app/page.tsx`, `src/app/layout.tsx`, `src/components/SiteHeader.tsx` | Home page (the hub: a card per game, with Woordle's three actions and a "Have a code?" box that opens `/woordle/room/<CODE>` after the same `isRoomCode` check the room page uses), header with the logo, footer disclaimer |
 | Room client | `src/lib/room/`, `src/components/room/` | PartySocket connection (closed on every server error, because `partysocket` otherwise retries forever), secret player ID and name in `sessionStorage`, room creation with 409 retry, lobby store and UI |
 | Room layer (server) | `party/room/`, `party/main.ts` | Player list, name suffixing, host role and handover, 5-player cap, mid-match join block, reconnect grace, rate limiting, results screen state. Rules are a pure state machine in `room.ts` (no PartyKit imports, portable to Workers); `main.ts` is the thin PartyKit adapter and `http.ts` answers room creation with CORS headers. Shared sliding-window limits live in `party/rate-limit.ts` |
 | Game registry | `party/games/index.ts` | Maps a game ID to its `GameDefinition` |
@@ -71,7 +71,7 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | Solo party (Phase 1 scaffold) | `party/solo.ts`, `party/games/woordle/solo-session.ts` | One single-player game per connection, before rooms exist. Its fate is decided in Phase 3 |
 | Challenge server | `party/challenge.ts` | Seals and opens challenge tokens, runs a solver session |
 | Woordle UI | `src/app/woordle/`, `src/components/woordle/` | Grid, keyboard, opponent boards, timers, summaries |
-| Design tokens | `src/lib/colors.ts`, `tailwind.config.ts` | `colors.ts` is the only place a colour value is written (palette, light and dark semantic tokens, class maps). `tailwind.config.ts` turns those tokens into CSS variables and colour utilities, sets the Geist font families, and defines the type scale as `<weight>-<step>` classes such as `semibold-display-sm` and `regular-text-md` (4 weights × 11 steps). Components use these tokens and classes, never raw colours, `text-<size>` or `font-<weight>`; `tests/design-tokens.test.ts` enforces it |
+| Design tokens | `src/lib/colors.ts`, `tailwind.config.ts` | `colors.ts` is the only place a colour value is written (palette, light and dark semantic tokens, class maps). `tailwind.config.ts` turns those tokens into CSS variables and colour utilities, sets the font families (Figtree for text, Bricolage Grotesque for display, both self-hosted by next/font), the hard "piece" shadows, and the type scale as `<weight>-<step>` classes such as `extrabold-display-lg` and `regular-text-md` (5 weights × 12 steps). The values mirror `design/tokens.json` (Phase 6, design C), checked by `tests/contrast.test.ts`. Components use these tokens and classes, never raw colours, `text-<size>` or `font-<weight>`; `tests/design-tokens.test.ts` enforces it |
 | Shared types | `shared/protocol.ts` | Message types used by both client and server; no word data |
 | Word data | `party/data/answers.json`, `party/data/guesses.json` | Server-only word lists |
 

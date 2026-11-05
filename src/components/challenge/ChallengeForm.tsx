@@ -14,6 +14,7 @@ import { challengeLink } from "@/lib/challenge/link";
 import { checkWord, sealWords } from "@/lib/challenge/seal-client";
 import {
   buttonClasses,
+  cardClasses,
   focusClasses,
   inputClasses,
   invalidInputClasses,
@@ -122,19 +123,19 @@ export function ChallengeForm() {
 
   return (
     <form
-      className="flex w-full max-w-md flex-col gap-6"
+      className={`flex w-full max-w-xl flex-col gap-5 p-5 sm:p-8 ${cardClasses}`}
       onSubmit={(event) => {
         event.preventDefault();
         if (allowed && !busy) void create();
       }}
     >
       <div className="flex flex-col gap-2">
-        <h1 className="semibold-display-xs">Make a challenge</h1>
+        <h1 className="extrabold-display-sm sm:extrabold-display-lg font-display">Make a challenge</h1>
         <p className="regular-text-md text-muted">Pick 5 words. Whoever opens your link plays them as 5 timed rounds.</p>
       </div>
 
-      <fieldset className="flex flex-col gap-3">
-        <legend className="semibold-text-md mb-1">Your 5 words</legend>
+      <fieldset className="flex flex-col gap-2">
+        <legend className="bold-text-sm mb-1 tracking-wider text-muted uppercase">Your 5 words</legend>
         {words.map((value, index) => {
           const verdict = verdictFor(index);
           const problem: WordProblem | null =
@@ -142,7 +143,7 @@ export function ChallengeForm() {
           const bad = problem !== null;
           return (
             <div key={index} className="flex flex-col gap-1">
-              <label htmlFor={`word-${index}`} className="medium-text-sm">
+              <label htmlFor={`word-${index}`} className="sr-only">
                 Word {index + 1}
               </label>
               <input
@@ -157,13 +158,14 @@ export function ChallengeForm() {
                 aria-describedby={bad ? `word-${index}-problem` : undefined}
                 onChange={(event) => edit(index, event.target.value)}
                 onBlur={() => void onBlur(index)}
-                className={`regular-text-md rounded border-2 px-3 py-2 uppercase ${bad ? invalidInputClasses : inputClasses} bg-background text-foreground ${focusClasses}`}
+                placeholder={`Word ${index + 1}`}
+                className={`bold-text-md rounded-xl px-3.5 py-2.5 tracking-widest uppercase placeholder:tracking-normal placeholder:normal-case placeholder:text-muted border-2 ${bad ? invalidInputClasses : inputClasses} bg-surface text-foreground ${focusClasses}`}
               />
               <p
                 id={`word-${index}-problem`}
                 data-testid={`word-${index}-problem`}
                 aria-live="polite"
-                className={`regular-text-sm min-h-5 ${invalidTextClasses}`}
+                className={`regular-text-xs min-h-4 ${invalidTextClasses}`}
               >
                 {problem ? PROBLEM_TEXT[problem] : ""}
               </p>
@@ -173,7 +175,7 @@ export function ChallengeForm() {
       </fieldset>
 
       <section className="flex flex-col gap-2" aria-label="Time per word">
-        <h2 className="semibold-text-md">Time per word</h2>
+        <h2 className="bold-text-sm tracking-wider text-muted uppercase">Time per word</h2>
         <div className="flex flex-wrap gap-2">
           {CHALLENGE_SECONDS_OPTIONS.map((seconds) => (
             <button
@@ -181,7 +183,7 @@ export function ChallengeForm() {
               type="button"
               aria-pressed={limitSec === seconds}
               onClick={() => pickLimit(seconds)}
-              className={`semibold-text-sm rounded px-3 py-2 ${limitSec === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
+              className={`bold-text-sm rounded-xl px-3.5 py-2 ${limitSec === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
             >
               {seconds / 60} min
             </button>
@@ -192,22 +194,24 @@ export function ChallengeForm() {
       <button
         type="submit"
         disabled={!allowed || busy}
-        className={`semibold-text-md self-start rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}
+        className={`bold-text-md self-stretch rounded-xl px-5 py-3 disabled:opacity-50 sm:self-start ${buttonClasses} ${focusClasses}`}
       >
         {busy ? "Creating…" : "Create link"}
       </button>
 
-      <p role="status" aria-live="polite" className="regular-text-sm min-h-5" data-testid="form-error">
+      <p role="status" aria-live="polite" className="bold-text-sm min-h-5 text-invalid" data-testid="form-error">
         {error}
       </p>
 
       {link && (
         <section aria-label="Your challenge link" className="flex flex-col gap-2" data-testid="link-panel">
-          <h2 className="semibold-text-md">Your link</h2>
-          <input readOnly value={link} aria-label="Challenge link" data-testid="challenge-link" onFocus={(e) => e.currentTarget.select()} className={`regular-text-sm rounded border-2 px-3 py-2 ${inputClasses} ${focusClasses}`} />
-          <button type="button" onClick={() => void copy()} className={`semibold-text-md self-start rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
-            {copied ? "Copied!" : "Copy link"}
-          </button>
+          <h2 className="bold-text-sm tracking-wider text-muted uppercase">Your link</h2>
+          <div className="flex gap-2.5">
+            <input readOnly value={link} aria-label="Challenge link" data-testid="challenge-link" onFocus={(e) => e.currentTarget.select()} className={`regular-text-sm min-w-0 flex-1 rounded-xl border-2 border-foreground bg-surface px-3.5 py-2.5 text-foreground ${focusClasses}`} />
+            <button type="button" onClick={() => void copy()} className={`bold-text-sm shrink-0 rounded-xl px-3.5 py-2 ${buttonClasses} ${focusClasses}`}>
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+          </div>
           <p className="regular-text-sm text-muted">The link never shows your words. Anyone with it can play, any number of times.</p>
         </section>
       )}

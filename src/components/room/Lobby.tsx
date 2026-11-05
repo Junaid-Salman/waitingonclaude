@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { ROUND_SECONDS_OPTIONS, type LobbyPlayer, type RoundSeconds } from "../../../shared/protocol";
-import { LeaveButton } from "./LeaveButton";
+import { MAX_PLAYERS, ROUND_SECONDS_OPTIONS, type LobbyPlayer, type RoundSeconds } from "../../../shared/protocol";
 import {
   buttonClasses,
+  cardClasses,
   focusClasses,
   hostBadgeClasses,
   inputClasses,
+  rowClasses,
   secondaryButtonClasses,
   selectedOptionClasses,
   youBadgeClasses,
@@ -20,14 +21,13 @@ interface Props {
   roundSeconds: number;
   onRoundSeconds(seconds: RoundSeconds): void;
   onStart(): void;
-  onLeave(): void;
   // Host controls cannot reach the server while the connection is down.
   offline?: boolean;
 }
 
 const minutes = (seconds: number) => `${seconds / 60} min`;
 
-export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onStart, onLeave, offline = false }: Props) {
+export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onStart, offline = false }: Props) {
   const [copied, setCopied] = useState(false);
   const isHost = players.some((p) => p.isHost && p.id === youId);
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/woordle/room/${code}`;
@@ -43,45 +43,51 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onSt
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="semibold-display-xs">Room {code}</h1>
-        <p className="regular-text-sm text-muted">Send this link to friends. Up to 5 players.</p>
+    <div className="flex w-full max-w-md flex-col gap-5 lg:max-w-none lg:flex-row lg:items-start lg:justify-center lg:gap-8">
+      <div className={`flex w-full flex-col gap-4 p-5 sm:p-7 lg:w-[560px] ${cardClasses}`}>
+        <div className="flex flex-col gap-1">
+          <h1 className="extrabold-display-sm font-display">Room {code}</h1>
+          <p className="regular-text-md text-muted">Send this link to friends. Up to 5 players.</p>
+        </div>
+
+        <div className="flex gap-2.5">
+          <input
+            readOnly
+            aria-label="Room link"
+            value={link}
+            onFocus={(event) => event.currentTarget.select()}
+            className={`regular-text-sm min-w-0 flex-1 rounded-xl border-2 px-3.5 py-2.5 ${inputClasses} ${focusClasses}`}
+          />
+          <button type="button" onClick={copy} className={`bold-text-sm shrink-0 rounded-xl px-3.5 py-2 ${secondaryButtonClasses} ${focusClasses}`}>
+            {copied ? "Copied" : "Copy link"}
+          </button>
+        </div>
+
+        <section aria-label="Players" className="flex flex-col gap-2">
+          <h2 className="bold-text-sm tracking-wider text-muted uppercase">
+            Players ({players.length}/{MAX_PLAYERS})
+          </h2>
+          <ul aria-live="polite" className="flex flex-col gap-2">
+            {players.map((player) => (
+              <li
+                key={player.id}
+                data-testid="player"
+                className={`bold-text-md flex items-center gap-2 px-3.5 py-2.5 ${rowClasses} ${player.connected ? "" : "text-muted"}`}
+              >
+                <span className="min-w-0 flex-1 truncate">{player.name}</span>
+                {!player.connected && <span className="regular-text-xs text-muted">Reconnecting…</span>}
+                {player.id === youId && <span className={`bold-text-xs rounded-full px-2.5 py-0.5 ${youBadgeClasses}`}>You</span>}
+                {player.isHost && <span className={`bold-text-xs rounded-full px-2.5 py-0.5 ${hostBadgeClasses}`}>Host</span>}
+              </li>
+            ))}
+          </ul>
+        </section>
       </div>
 
-      <div className="flex gap-2">
-        <input
-          readOnly
-          aria-label="Room link"
-          value={link}
-          onFocus={(event) => event.currentTarget.select()}
-          className={`regular-text-sm min-w-0 flex-1 rounded border-2 px-3 py-2 ${inputClasses} ${focusClasses}`}
-        />
-        <button type="button" onClick={copy} className={`semibold-text-sm rounded px-3 py-2 ${secondaryButtonClasses} ${focusClasses}`}>
-          {copied ? "Copied" : "Copy link"}
-        </button>
-      </div>
-
-      <section aria-label="Players" className="flex flex-col gap-2">
-        <h2 className="semibold-text-md">
-          Players ({players.length}/5)
-        </h2>
-        <ul aria-live="polite" className="flex flex-col gap-2">
-          {players.map((player) => (
-            <li key={player.id} data-testid="player" className="regular-text-md flex items-center gap-2 rounded border-2 border-tile-border px-3 py-2">
-              <span className="min-w-0 flex-1 truncate">{player.name}</span>
-              {!player.connected && <span className="regular-text-xs text-muted">Reconnecting…</span>}
-              {player.id === youId && <span className={`semibold-text-xs rounded px-2 py-0.5 ${youBadgeClasses}`}>You</span>}
-              {player.isHost && <span className={`semibold-text-xs rounded px-2 py-0.5 ${hostBadgeClasses}`}>Host</span>}
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-label="Round length" className="flex flex-col gap-2">
-        <h2 className="semibold-text-md">Round length</h2>
+      <section aria-label="Round length" className={`flex w-full flex-col gap-4 p-5 sm:p-7 lg:w-[400px] ${cardClasses}`}>
+        <h2 className="bold-text-sm tracking-wider text-muted uppercase">Round length</h2>
         {isHost ? (
-          <div role="group" aria-label="Round length" className="flex gap-2">
+          <div role="group" aria-label="Round length" className="flex gap-2.5">
             {ROUND_SECONDS_OPTIONS.map((seconds) => (
               <button
                 key={seconds}
@@ -89,28 +95,31 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onSt
                 aria-pressed={roundSeconds === seconds}
                 disabled={offline}
                 onClick={() => onRoundSeconds(seconds)}
-                className={`semibold-text-sm rounded px-3 py-2 disabled:opacity-60 ${roundSeconds === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
+                className={`bold-text-sm rounded-xl px-3.5 py-2 disabled:opacity-50 ${roundSeconds === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
               >
                 {minutes(seconds)}
               </button>
             ))}
           </div>
         ) : (
-          <p className="regular-text-md" data-testid="round-length">
+          <p className="extrabold-display-xs font-display" data-testid="round-length">
             {minutes(roundSeconds)}
           </p>
         )}
+        <p className="regular-text-sm text-muted">5 rounds, one hidden word each. Fastest solve wins the round.</p>
+        {isHost ? (
+          <button
+            type="button"
+            disabled={offline}
+            onClick={onStart}
+            className={`bold-text-md rounded-xl px-5 py-3 disabled:opacity-50 ${buttonClasses} ${focusClasses}`}
+          >
+            Start match
+          </button>
+        ) : (
+          <p className="regular-text-md text-muted">Waiting for the host to start the match.</p>
+        )}
       </section>
-
-      {isHost ? (
-        <button type="button" disabled={offline} onClick={onStart} className={`semibold-text-md self-start rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}>
-          Start match
-        </button>
-      ) : (
-        <p className="regular-text-sm text-muted">Waiting for the host to start the match.</p>
-      )}
-
-      <LeaveButton onLeave={onLeave} />
     </div>
   );
 }

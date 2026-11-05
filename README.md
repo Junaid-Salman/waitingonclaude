@@ -2,9 +2,13 @@
 
 Browser game hub for people waiting on Claude to finish a task. First game: Woordle.
 
+## Look and feel
+
+Design "Game night": ink-outlined game pieces with hard offset shadows, Bricolage Grotesque for display and Figtree for text, on a warm paper background (`#F0EFE6`) with the brand green, red and yellow. Light and dark themes follow the system setting; in dark the shadows drop away. The logo is the "bounce W": a ball's path draws the W. Design sources live in `design/` (tokens, logo masters and export kit, brief) and in the Figma file.
+
 ## Styling rules
 
-Colours are defined only in `src/lib/colors.ts`; fonts and the type scale only in `tailwind.config.ts`. Use token classes (`bg-tile-correct`, `text-muted`, `semibold-text-md`), not raw colours, `text-sm` or `font-bold`. `npm test` fails if `src/` breaks this.
+Colours are defined only in `src/lib/colors.ts` (mirroring `design/tokens.json`); fonts, the type scale and the piece shadows only in `tailwind.config.ts`. Use token classes (`bg-tile-correct`, `text-muted`, `bold-text-md`, `shadow-piece`), not raw colours, `text-sm` or `font-bold`. `npm test` fails if `src/` breaks this or a colour pair loses contrast.
 
 ## Run locally
 

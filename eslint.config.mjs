@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     "build/**",
     ".partykit/**",
     "next-env.d.ts",
+    // Design sources: Figma plugin scripts and logo build tooling, not app code.
+    "design/**",
   ]),
 ]);
 

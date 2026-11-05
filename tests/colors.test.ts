@@ -1,14 +1,18 @@
 import { describe, expect, test } from "vitest";
 import {
+  accentButtonClasses,
   buttonClasses,
+  cardClasses,
   focusClasses,
   hostBadgeClasses,
   inputClasses,
   keyClassesByColour,
   keyClassesIdle,
+  keyPieceClasses,
   palette,
   miniTileClassesByColour,
   miniTileEmptyClasses,
+  rowClasses,
   secondaryButtonClasses,
   selectedOptionClasses,
   solvedBadgeClasses,
@@ -16,6 +20,7 @@ import {
   tileClassesByColour,
   tileClassesUnscored,
   youBadgeClasses,
+  youRowClasses,
 } from "../src/lib/colors";
 
 const luminance = (hex: string) => {
@@ -84,14 +89,22 @@ describe("colour tokens", () => {
       solvedBadgeClasses,
       ...Object.values(miniTileClassesByColour),
       miniTileEmptyClasses,
+      keyPieceClasses,
+      accentButtonClasses,
+      cardClasses,
+      rowClasses,
+      youRowClasses,
     ].flatMap((s) => s.split(/\s+/));
+    let colourClasses = 0;
     for (const cls of classes) {
-      if (cls === "border") continue; // a width, not a colour
-      const token = cls
-        .replace(/^focus-visible:outline-(2|offset-2)$/, "background") // width and offset, not colours
-        .replace(/^(focus-visible:outline|bg|text|border)-/, "")
-        .replace(/\/\d+$/, "");
-      expect(tokens.has(token), cls).toBe(true);
+      // Only colour utilities name a token; widths ([2.5px], 2), offsets, radii, translations and
+      // the shadow-piece geometry tokens do not.
+      const base = cls.split(":").pop()!.replace(/\/\d+$/, "");
+      const m = /^(bg|text|border|outline)-(.+)$/.exec(base);
+      if (!m || /^(\[|\d|offset-|[xytrbl]-)/.test(m[2])) continue;
+      colourClasses++;
+      expect(tokens.has(m[2]), cls).toBe(true);
     }
+    expect(colourClasses).toBeGreaterThan(30); // the check is not vacuous
   });
 });

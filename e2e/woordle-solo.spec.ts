@@ -83,3 +83,11 @@ test("fairness: no frame before the game ends contains the answer", async ({ pag
   await guess(page, WRONG[5]);
   await expect.poll(() => frames.some((f) => f.includes("soloEnd") && f.includes(ANSWER))).toBe(true);
 });
+
+test("Enter on a focused header link follows the link instead of submitting a guess (M1)", async ({ page }) => {
+  await open(page);
+  await page.keyboard.type("cra");
+  await page.getByRole("link", { name: "Woordle", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await page.waitForURL(/\/woordle$/);
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import type { RoomErrorCode } from "../../../shared/protocol";
-import { buttonClasses, focusClasses } from "@/lib/colors";
+import { buttonClasses, cardClasses, focusClasses } from "@/lib/colors";
 import { CreateRoomButton } from "./CreateRoomButton";
 
 const MESSAGES: Record<Exclude<RoomErrorCode, "invalid-name">, { title: string; detail: string }> = {
@@ -13,17 +13,21 @@ const MESSAGES: Record<Exclude<RoomErrorCode, "invalid-name">, { title: string; 
 
 export function RoomError({ code, onRetry }: { code: Exclude<RoomErrorCode, "invalid-name">; onRetry(): void }) {
   const message = MESSAGES[code];
+  const heads = code === "replaced";
   return (
-    <div role="alert" className="flex flex-col items-start gap-4">
-      <h1 className="semibold-display-xs">{message.title}</h1>
-      <p className="regular-text-md">{message.detail}</p>
-      <div className="flex flex-wrap gap-3">
+    <div role="alert" className={`flex w-full max-w-md flex-col items-start gap-4 p-5 sm:p-7 ${cardClasses}`}>
+      <span className={`bold-text-xs rounded-full border-2 border-foreground px-3 py-0.5 ${heads ? "bg-tile-present text-tile-present-fg" : "bg-accent text-accent-fg"}`}>
+        {heads ? "Heads up" : "Can't join"}
+      </span>
+      <h1 className="extrabold-display-sm sm:extrabold-display-md font-display">{message.title}</h1>
+      <p className="regular-text-md text-muted">{message.detail}</p>
+      <div className="flex w-full flex-wrap gap-3">
         {(code === "match-in-progress" || code === "replaced" || code === "room-full") && (
-          <button type="button" onClick={onRetry} className={`semibold-text-md rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
+          <button type="button" onClick={onRetry} className={`bold-text-md w-full rounded-xl px-5 py-3 sm:w-auto ${buttonClasses} ${focusClasses}`}>
             {code === "replaced" ? "Use this tab" : "Try again"}
           </button>
         )}
-        {code === "room-not-found" && <CreateRoomButton />}
+        {code === "room-not-found" && <CreateRoomButton wide />}
       </div>
     </div>
   );

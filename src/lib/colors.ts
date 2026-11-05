@@ -1,118 +1,138 @@
 // Single source of truth for the colour scheme. Nothing else in the repo may hold a hex value.
 // tailwind.config.ts turns `themes` into CSS variables and Tailwind colour utilities, so a token
-// added here is usable as `bg-<token>`, `text-<token>` and `border-<token>` straight away.
+// added here is usable as `bg-<token>`, `text-<token>`, `border-<token>`, `fill-<token>` and
+// `stroke-<token>` straight away.
+//
+// The values mirror design/tokens.json (Phase 6, design C "Game night"); tests/contrast.test.ts
+// fails if the two drift or a pair loses contrast.
 //
 // Relative imports only: the Tailwind config loads this file outside the `@/` alias.
 import type { TileColour } from "../../shared/protocol";
 
-// Scale values are Tailwind's published steps, so a step name tells you roughly how light it is.
+// The owner's brand colours plus warm neutrals tuned to the paper background. Warm steps run from
+// light (50) to dark (975).
 export const palette = {
   white: "#ffffff",
-  black: "#000000",
-  neutral: {
-    50: "#fafafa",
-    100: "#f5f5f5",
-    200: "#e5e5e5",
-    300: "#d4d4d4",
-    400: "#a3a3a3",
-    500: "#737373",
-    600: "#525252",
-    700: "#404040",
-    800: "#262626",
-    900: "#171717",
-    950: "#0a0a0a",
+  brand: {
+    paper: "#f0efe6",
+    ink: "#23221d",
+    green: "#3f6948",
+    red: "#e0214d",
+    yellow: "#ffb331",
+    night: "#1c1b17",
   },
-  slate: {
-    50: "#f8fafc",
-    100: "#f1f5f9",
-    200: "#e2e8f0",
-    300: "#cbd5e1",
-    400: "#94a3b8",
-    500: "#64748b",
-    600: "#475569",
-    700: "#334155",
-    800: "#1e293b",
-    900: "#0f172a",
-    950: "#020617",
+  warm: {
+    50: "#faf9f4",
+    150: "#e6e4d9",
+    200: "#dedbcd",
+    300: "#cfccbe",
+    350: "#c9c6b8",
+    400: "#a9a699",
+    500: "#8c8a80",
+    550: "#7d7a6f",
+    600: "#6e6b60",
+    650: "#66635a",
+    700: "#4f4d44",
+    750: "#4a4840",
+    800: "#45433a",
+    850: "#3a3830",
+    900: "#26251f",
+    975: "#14130f",
   },
-  teal: {
-    50: "#f0fdfa",
-    100: "#ccfbf1",
-    200: "#99f6e4",
-    300: "#5eead4",
-    400: "#2dd4bf",
-    500: "#14b8a6",
-    600: "#0d9488",
-    700: "#0f766e",
-    800: "#115e59",
-    900: "#134e4a",
-    950: "#042f2e",
-  },
-  amber: {
-    50: "#fffbeb",
-    100: "#fef3c7",
-    200: "#fde68a",
-    300: "#fcd34d",
-    400: "#fbbf24",
-    500: "#f59e0b",
-    600: "#d97706",
-    700: "#b45309",
-    800: "#92400e",
-    900: "#78350f",
-    950: "#451a03",
-  },
-  red: {
-    400: "#f87171",
-    600: "#dc2626",
-  },
+  green: { 300: "#6fa77a", 400: "#4e8059" },
+  red: { 400: "#f0527a", 600: "#c41a40" },
+  yellow: { 700: "#a8740c" },
 } as const;
+
+const { brand, warm } = palette;
 
 // Semantic tokens. `-fg` is the text colour that sits on the token of the same name.
 // Every token needs a value in both themes; tests/colors.test.ts enforces that.
 export const themes = {
   light: {
-    background: palette.white,
-    foreground: palette.neutral[900],
-    muted: palette.neutral[500],
-    "tile-border": palette.slate[400],
-    "tile-correct": palette.teal[700],
+    background: brand.paper,
+    surface: warm[50],
+    sunken: warm[150],
+    border: warm[300],
+    foreground: brand.ink,
+    muted: warm[650],
+    "tile-border": warm[350],
+    "tile-typed": warm[550],
+    "tile-correct": brand.green,
     "tile-correct-fg": palette.white,
-    "tile-present": palette.amber[400],
-    "tile-present-fg": palette.slate[900],
-    "tile-absent": palette.slate[600],
+    "tile-present": brand.yellow,
+    "tile-present-fg": brand.ink,
+    // Yellow on paper is only 1.55:1, so a present tile also gets a darker edge (3.5:1).
+    "tile-present-edge": palette.yellow[700],
+    "tile-absent": warm[600],
     "tile-absent-fg": palette.white,
-    "key-idle": palette.slate[200],
-    "key-absent": palette.slate[600],
+    "key-idle": warm[200],
+    "key-idle-fg": brand.ink,
+    "key-absent": warm[600],
     "key-absent-fg": palette.white,
-    // Text and borders for a rejected input (a Challenge word that is not allowed).
+    primary: brand.green,
+    "primary-fg": palette.white,
+    accent: brand.red,
+    "accent-fg": palette.white,
+    // #e0214d is 4.05:1 on paper, too low for small text, so error text uses a deeper red.
     invalid: palette.red[600],
+    // Green text ("Solved · 0:48"). Tile green is a fill; as small text in dark it is too dim.
+    success: brand.green,
+    focus: brand.ink,
+    // The hard offset shadow of the game pieces (shadow-piece in tailwind.config.ts).
+    shadow: brand.ink,
+    // Behind modal dialogs, drawn at 60%.
+    scrim: brand.ink,
   },
   dark: {
-    background: palette.neutral[950],
-    foreground: palette.neutral[200],
-    muted: palette.neutral[400],
-    "tile-border": palette.slate[500],
-    "tile-correct": palette.teal[700],
+    background: brand.night,
+    surface: warm[900],
+    sunken: warm[975],
+    border: warm[800],
+    foreground: brand.paper,
+    muted: warm[400],
+    "tile-border": warm[700],
+    "tile-typed": warm[500],
+    "tile-correct": palette.green[400],
     "tile-correct-fg": palette.white,
-    "tile-present": palette.amber[400],
-    "tile-present-fg": palette.slate[900],
-    "tile-absent": palette.slate[600],
-    "tile-absent-fg": palette.white,
-    "key-idle": palette.slate[700],
+    "tile-present": brand.yellow,
+    "tile-present-fg": brand.ink,
+    "tile-present-edge": brand.yellow,
+    "tile-absent": warm[750],
+    "tile-absent-fg": brand.paper,
+    "key-idle": warm[850],
+    "key-idle-fg": brand.paper,
     // Dimmer than an unused key so spent letters read at a glance.
-    "key-absent": palette.slate[800],
-    "key-absent-fg": palette.slate[300],
+    "key-absent": warm[900],
+    "key-absent-fg": warm[400],
+    primary: palette.green[400],
+    "primary-fg": palette.white,
+    accent: brand.red,
+    "accent-fg": palette.white,
     invalid: palette.red[400],
+    success: palette.green[300],
+    focus: brand.paper,
+    // Shadows drop away in the dark theme: the shadow is the background colour.
+    shadow: brand.night,
+    scrim: warm[975],
   },
 } as const satisfies Record<"light" | "dark", Record<string, string>>;
 
 export type ColourToken = keyof (typeof themes)["light"];
 
-// Class maps. They hold whole class names so Tailwind's source scanner can see them.
+// ---- Class maps: whole class names, so Tailwind's source scanner can see them ----
+
+// Every game piece (tile, key, button, card) has an ink outline; filled pieces add the hard shadow.
+// Pressing moves a piece down 2 px and shrinks its shadow; reduced motion keeps it still.
+const press = "active:translate-y-0.5 active:shadow-piece-pressed motion-reduce:active:translate-y-0 disabled:translate-y-0 disabled:shadow-none";
+// Pieces without a resting shadow only move; keys press straight down onto their shadow.
+const pressFlat = "active:translate-y-0.5 motion-reduce:active:translate-y-0 disabled:translate-y-0";
+const pressKey = "active:translate-y-[3px] active:shadow-none motion-reduce:active:translate-y-0 disabled:translate-y-0";
+
 export const tileClassesByColour: Record<TileColour, string> = {
-  green: "bg-tile-correct border-tile-correct text-tile-correct-fg",
-  yellow: "bg-tile-present border-tile-present text-tile-present-fg",
-  grey: "bg-tile-absent border-tile-absent text-tile-absent-fg",
+  green: "bg-tile-correct border-foreground text-tile-correct-fg shadow-piece",
+  yellow: "bg-tile-present border-foreground text-tile-present-fg shadow-piece",
+  grey: "bg-tile-absent border-foreground text-tile-absent-fg shadow-piece",
 };
 
 export const keyClassesByColour: Record<TileColour, string> = {
@@ -122,29 +142,38 @@ export const keyClassesByColour: Record<TileColour, string> = {
 };
 
 export const tileClassesUnscored = {
-  typed: "border-tile-border",
-  empty: "border-tile-border/40",
+  typed: "bg-surface border-tile-typed text-foreground shadow-piece",
+  empty: "bg-surface border-tile-border",
 } as const;
 
-export const keyClassesIdle = "bg-key-idle";
+export const keyClassesIdle = "bg-key-idle text-key-idle-fg";
+export const keyPieceClasses = `border-2 border-foreground shadow-piece-key ${pressKey}`;
 
-export const buttonClasses = "bg-tile-correct text-tile-correct-fg";
+export const buttonClasses = `border-[2.5px] border-foreground bg-primary text-primary-fg shadow-piece ${press}`;
+export const secondaryButtonClasses = `border-[2.5px] border-foreground bg-surface text-foreground ${pressFlat}`;
+export const accentButtonClasses = `border-[2.5px] border-foreground bg-accent text-accent-fg shadow-piece ${press}`;
+export const selectedOptionClasses = buttonClasses;
 
-export const secondaryButtonClasses = "bg-key-idle text-foreground";
-export const selectedOptionClasses = "bg-tile-correct text-tile-correct-fg";
-export const hostBadgeClasses = "bg-tile-present text-tile-present-fg";
-export const youBadgeClasses = "bg-key-idle text-foreground";
-export const inputClasses = "border-tile-border bg-background text-foreground";
-export const invalidInputClasses = "border-invalid";
+export const hostBadgeClasses = "border-2 border-foreground bg-tile-present text-tile-present-fg";
+export const youBadgeClasses = "border-2 border-foreground bg-surface text-foreground";
+export const solvedBadgeClasses = "border-2 border-foreground bg-tile-correct text-tile-correct-fg";
+
+export const cardClasses = "rounded-[18px] border-[2.5px] border-foreground bg-surface shadow-piece-lg";
+export const rowClasses = "rounded-xl border-2 border-foreground bg-surface";
+export const youRowClasses = "rounded-xl border-2 border-foreground bg-tile-present text-tile-present-fg";
+
+// Resting outline in ink like every other piece: 13:1 or more, where the old warm grey was 1.5:1 (M3).
+export const inputClasses = "border-foreground bg-surface text-foreground";
+// Replaces inputClasses when invalid, so it carries the same fill and text colour.
+export const invalidInputClasses = "border-invalid bg-surface text-foreground";
 export const invalidTextClasses = "text-invalid";
-export const focusClasses = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-tile-correct";
-
-export const solvedBadgeClasses = "bg-tile-correct text-tile-correct-fg";
+export const focusClasses = "focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-focus";
 
 // Opponents' boards are shown as small colour-only cells: no letters, ever.
 export const miniTileClassesByColour: Record<TileColour, string> = {
   green: "bg-tile-correct",
-  yellow: "bg-tile-present",
+  // Yellow on the light card is only 1.7:1, so the cell gets the darker present edge.
+  yellow: "bg-tile-present border-[1.5px] border-tile-present-edge",
   grey: "bg-tile-absent",
 };
-export const miniTileEmptyClasses = "border border-tile-border/40";
+export const miniTileEmptyClasses = "border-[1.5px] border-tile-border";
