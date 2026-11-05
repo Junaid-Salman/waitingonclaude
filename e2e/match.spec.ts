@@ -1,9 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
-import { E2E_REVEAL_MS } from "../party/e2e/answers";
+import { E2E_GRACE_MS, E2E_REVEAL_MS } from "../party/e2e/answers";
 import { createRoom, joinRoom, newPlayer, typeGuess } from "./helpers";
 
-// partykit.e2e.json: answers crane, slate, robot, moist, light; durations scaled by 0.01, so a
-// 2 min round lasts 1.2 s and a 5 min round 3 s. The pause between rounds is 1.5 s.
+// partykit.e2e.json: answers crane, slate, robot, moist, light. A 2 min round lasts 1.2 s and a
+// 5 min round 3 s (3 min lasts 20 s, for the refresh tests in resilience.spec.ts). The pause between
+// rounds is 1.5 s.
 const ANSWERS = ["crane", "slate", "robot", "moist", "light"];
 
 const roundLabel = (page: Page) => page.getByTestId("round-label");
@@ -175,7 +176,7 @@ test("a round ends early when everyone has solved, and no frame leaks the answer
   expect(aliFrames.some((f) => f.includes(`"type":"roundEnd"`) && f.includes(ANSWERS[0]))).toBe(true);
 });
 
-test("a player who leaves mid-match stays on the board as Left and in the final ranking", async ({ browser }) => {
+test("a player who closes their tab shows Reconnecting, then Left after the grace, and stays in the final ranking", async ({ browser }) => {
   test.setTimeout(60_000);
   const ali = await newPlayer(browser);
   const bo = await newPlayer(browser);
@@ -187,7 +188,8 @@ test("a player who leaves mid-match stays on the board as Left and in the final 
   await expect(roundLabel(ali)).toHaveText("Round 1 of 5");
 
   await bo.context().close();
-  await expect(ali.getByTestId("opponent")).toContainText("Left");
+  await expect(ali.getByTestId("opponent")).toContainText("Reconnecting…");
+  await expect(ali.getByTestId("opponent")).toContainText("Left", { timeout: E2E_GRACE_MS + 10_000 });
 
   await expect(ali.getByTestId("match-summary")).toBeVisible({ timeout: 30_000 });
   const rows = await rankingRows(ali);
@@ -200,8 +202,10 @@ test("opponent boards never show letters", async ({ browser }) => {
   const code = await createRoom(ali, "Ali");
   await joinRoom(bo, code, "Bo");
   await expect(ali.getByTestId("player")).toHaveCount(2);
-  await pickLength(ali, "5 min");
+  // The default 3 min round (20 s in e2e): a 3 s round could end, and hide the card, before the
+  // check below on a slow run.
   await startMatch(ali);
+  await expect(roundLabel(ali)).toHaveText("Round 1 of 5"); // Ali's keyboard is live
   await expect(roundLabel(bo)).toHaveText("Round 1 of 5");
 
   await typeGuess(ali, ANSWERS[1]); // "slate": wrong for round 1

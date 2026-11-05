@@ -47,6 +47,8 @@ interface ChallengeState {
   solvedMs: number | null;
   roundEnd: ChallengeRoundEnd | null;
   summary: ChallengeSummaryInfo | null;
+  // Bumped on every refused guess, so the board can shake once per refusal.
+  rejections: number;
   type(letter: string): void;
   backspace(): void;
   // Returns the word to send, or null when the guess is not ready to submit.
@@ -76,6 +78,7 @@ const empty = {
   solvedMs: null as number | null,
   roundEnd: null as ChallengeRoundEnd | null,
   summary: null as ChallengeSummaryInfo | null,
+  rejections: 0,
 };
 
 export const isDone = (s: Pick<ChallengeState, "solvedMs" | "rows">): boolean =>
@@ -109,7 +112,7 @@ export const useChallenge = create<ChallengeState>((set, get) => ({
     const s = get();
     if (s.stage !== "playing" || s.pending || isDone(s)) return null;
     if (s.input.length < WORD_LENGTH) {
-      set({ message: "Not enough letters" });
+      set({ message: "Not enough letters", rejections: s.rejections + 1 });
       return null;
     }
     set({ pending: true, message: "" });
@@ -151,7 +154,7 @@ export const useChallenge = create<ChallengeState>((set, get) => ({
         }));
         break;
       case "guessRejected":
-        set({ pending: false, message: REJECTIONS[message.reason] });
+        set((s) => ({ pending: false, message: REJECTIONS[message.reason], rejections: s.rejections + 1 }));
         break;
       case "roundEnd":
         set({

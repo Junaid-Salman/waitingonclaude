@@ -3,6 +3,7 @@
 import type { RosterPlayer } from "../../../shared/protocol";
 import { formatCountdown, formatDuration, remainingMs } from "@/lib/room/clock";
 import type { RoundEndInfo } from "@/lib/room/match-store";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
 import { useNow } from "@/lib/use-now";
 
 interface Props {
@@ -15,6 +16,7 @@ interface Props {
 
 export function RoundSummary({ info, roster, youId, totalRounds, offset }: Props) {
   const now = useNow();
+  const heading = useFocusOnMount<HTMLHeadingElement>();
   const name = (id: string) => roster.find((p) => p.id === id)?.name ?? "Player";
   const last = info.round >= totalRounds;
   const winner = info.winnerId ? (info.winnerId === youId ? "You" : name(info.winnerId)) : null;
@@ -22,7 +24,7 @@ export function RoundSummary({ info, roster, youId, totalRounds, offset }: Props
   return (
     <section aria-label="Round result" data-testid="round-summary" className="flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <h2 className="semibold-display-xs">
+        <h2 ref={heading} tabIndex={-1} className="semibold-display-xs outline-none">
           Round {info.round} of {totalRounds}
         </h2>
         <p className="regular-text-md">

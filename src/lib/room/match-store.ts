@@ -50,6 +50,8 @@ interface MatchState {
   opponents: Record<string, OpponentBoard>;
   roundEnd: RoundEndInfo | null;
   ranking: RankingEntry[] | null;
+  // Bumped on every refused guess, so the board can shake once per refusal.
+  rejections: number;
   type(letter: string): void;
   backspace(): void;
   // Returns the word to send, or null when the guess is not ready to submit.
@@ -74,6 +76,7 @@ const empty = {
   opponents: {} as Record<string, OpponentBoard>,
   roundEnd: null as RoundEndInfo | null,
   ranking: null as RankingEntry[] | null,
+  rejections: 0,
 };
 
 // This player has solved the round or used every guess, so the board is locked.
@@ -108,7 +111,7 @@ export const useMatch = create<MatchState>((set, get) => ({
     const s = get();
     if (s.stage !== "playing" || s.pending || isDone(s)) return null;
     if (s.input.length < WORD_LENGTH) {
-      set({ message: "Not enough letters" });
+      set({ message: "Not enough letters", rejections: s.rejections + 1 });
       return null;
     }
     set({ pending: true, message: "" });
@@ -138,7 +141,7 @@ export const useMatch = create<MatchState>((set, get) => ({
         }));
         break;
       case "guessRejected":
-        set({ pending: false, message: REJECTIONS[message.reason] });
+        set((s) => ({ pending: false, message: REJECTIONS[message.reason], rejections: s.rejections + 1 }));
         break;
       case "opponentProgress":
         set((s) => ({ opponents: { ...s.opponents, [message.id]: { rows: message.rows, solvedMs: message.solvedMs } } }));
@@ -161,6 +164,26 @@ export const useMatch = create<MatchState>((set, get) => ({
       case "matchEnd":
         set({ stage: "finished", ranking: message.ranking });
         break;
+      case "matchSnapshot": {
+        // A refresh or reconnect mid-match: rebuild the whole screen from the server's view.
+        const rows = message.own.rows.map((r) => ({ word: r.word, colours: r.colours }));
+        set({
+          ...empty,
+          stage: message.stage === "playing" ? "playing" : message.stage === "reveal" ? "reveal" : "finished",
+          round: message.round,
+          totalRounds: message.totalRounds,
+          endsAt: message.endsAt,
+          offset: offsetFrom(message.serverNow, clientNow),
+          roster: message.players,
+          rows,
+          keyColours: rows.reduce<KeyColours>((acc, r) => mergeKeyColours(acc, r.word, r.colours), {}),
+          solvedMs: message.own.solvedMs,
+          opponents: Object.fromEntries(message.opponents.map((o) => [o.id, { rows: o.rows, solvedMs: o.solvedMs }])),
+          roundEnd: message.roundEnd ? { round: message.round, ...message.roundEnd } : null,
+          ranking: message.ranking,
+        });
+        break;
+      }
     }
   },
 

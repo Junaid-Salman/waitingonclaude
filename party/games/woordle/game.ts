@@ -1,9 +1,10 @@
 import {
-  MAX_GUESSES,
   ROUNDS_PER_MATCH,
   ROUND_SECONDS_OPTIONS,
   DEFAULT_ROUND_SECONDS,
+  type MatchSnapshot,
   type RankingEntry,
+  type RoundPlayerResult,
   type RoundSeconds,
   type TileColour,
 } from "../../../shared/protocol";
@@ -49,7 +50,13 @@ interface RoundState {
   status: "running" | "revealing";
   boards: Map<PublicId, PlayerRound>;
   winnerId: PublicId | null;
+  // Set when the round ends, so a player who returns during the reveal sees the same summary.
+  results: RoundPlayerResult[] | null;
+  nextAt: number | null;
 }
+
+// What viewFor shows one player: a match snapshot without the envelope the game adds on send.
+export type WoordleView = Omit<MatchSnapshot, "type" | "serverNow">;
 
 // Owned by the game: handlers mutate it and return it.
 export interface WoordleState {
@@ -68,6 +75,9 @@ export interface WoordleOptions {
   // Multiplies each round's time limit. Always 1 in production; the e2e server shrinks it so a whole
   // match takes seconds.
   timeScale?: number;
+  // Overrides timeScale with an exact limit per round length. The e2e server uses it to keep the
+  // short lengths fast and give one length enough time to refresh a page mid-round.
+  limitMs?: (roundSeconds: RoundSeconds) => number;
   // Pause between rounds. It is a UI pause, not a game clock, so timeScale does not shrink it.
   revealMs?: number;
 }
@@ -96,6 +106,8 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
       status: "running",
       boards: new Map(),
       winnerId: null,
+      results: null,
+      nextAt: null,
     };
     for (const p of state.players) round.boards.set(p.id, { board: createBoard(round.answer), solvedMs: null });
     state.round = round;
@@ -124,6 +136,8 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
     });
     const winner = state.players.find((p) => p.id === round.winnerId);
     if (winner) winner.roundsWon++;
+    round.results = results;
+    round.nextAt = ctx.now() + revealMs;
 
     ctx.broadcast({
       type: "roundEnd",
@@ -131,7 +145,7 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
       answer: round.answer,
       winnerId: round.winnerId,
       results,
-      nextAt: ctx.now() + revealMs,
+      nextAt: round.nextAt,
     });
     // After the last round the same pause lets players read the answer before the ranking.
     state.cancelTimer = ctx.schedule(
@@ -140,7 +154,9 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
     );
   }
 
-  // Ends the round as soon as every connected player has solved or used all guesses.
+  // Ends the round as soon as every player still in the match has solved or used all guesses. A
+  // player in their reconnect grace is still in the match (the room only reports a leave once the
+  // seat is gone), so the round waits for them.
   function endEarlyIfDone(state: WoordleState, ctx: Ctx) {
     const round = state.round;
     if (!round || round.status !== "running") return;
@@ -197,6 +213,30 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
     ctx.broadcast({ type: "matchEnd", ranking: state.ranking });
   }
 
+  // The fairness boundary, and the only source of a snapshot: own letters, opponents' colours,
+  // and the answer only once the round is over.
+  function view(state: WoordleState, id: PublicId): WoordleView | null {
+    const round = state.round;
+    const own = round?.boards.get(id);
+    if (!round || !own) return null;
+    const revealed = round.status === "revealing";
+    return {
+      stage: state.status === "finished" ? "finished" : revealed ? "reveal" : "playing",
+      round: round.n,
+      totalRounds: ROUNDS_PER_MATCH,
+      startedAt: round.startedAt,
+      endsAt: round.endsAt,
+      players: state.players.map((p) => ({ id: p.id, name: p.name })),
+      own: { rows: own.board.rows.map((r) => ({ word: r.word, colours: r.colours })), solvedMs: own.solvedMs },
+      opponents: state.players.filter((p) => p.id !== id).map((p) => ({ id: p.id, ...publicBoard(round.boards.get(p.id)!) })),
+      roundEnd:
+        revealed && round.results && round.nextAt !== null
+          ? { answer: round.answer, winnerId: round.winnerId, results: round.results, nextAt: round.nextAt }
+          : null,
+      ranking: state.ranking,
+    };
+  }
+
   return {
     id: "woordle",
     defaultSettings: { roundSeconds: DEFAULT_ROUND_SECONDS },
@@ -216,7 +256,7 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
 
     createState(players: RoomPlayer[], settings, ctx) {
       const state: WoordleState = {
-        limitMs: settings.roundSeconds * 1000 * scale,
+        limitMs: options.limitMs?.(settings.roundSeconds) ?? settings.roundSeconds * 1000 * scale,
         answers: pickAnswers(ROUNDS_PER_MATCH),
         players: players.map((p) => ({ id: p.id, name: p.name, connected: true, roundsWon: 0, totalMs: 0 })),
         round: null,
@@ -255,24 +295,15 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
       return state;
     },
 
-    viewFor(state, id) {
-      const round = state.round;
-      const own = round?.boards.get(id);
-      const over = state.status === "finished" || round?.status === "revealing";
-      return {
-        round: round?.n ?? null,
-        totalRounds: ROUNDS_PER_MATCH,
-        own: own ? { rows: own.board.rows, solvedMs: own.solvedMs, maxGuesses: MAX_GUESSES } : null,
-        opponents: round
-          ? state.players
-              .filter((p) => p.id !== id)
-              .map((p) => ({ id: p.id, name: p.name, ...publicBoard(round.boards.get(p.id)!) }))
-          : [],
-        // The answer is revealed only once the round is over.
-        answer: over && round ? round.answer : null,
-        ranking: state.ranking,
-      };
+    onPlayerReturn(state, id, ctx) {
+      const snapshot = view(state, id);
+      if (snapshot) ctx.sendTo(id, { type: "matchSnapshot", serverNow: ctx.now(), ...snapshot });
+      return state;
     },
+
+    rateLimitedReply: (action) => (action.type === "guess" ? { type: "guessRejected", reason: "rate-limited" } : null),
+
+    viewFor: view,
 
     isFinished: (state) => state.status === "finished",
   };

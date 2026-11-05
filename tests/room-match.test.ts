@@ -8,6 +8,8 @@ const LIMIT = 180_000;
 const REVEAL = 5_000;
 const pid = (n: number) => `player-id-${n}-secret`;
 const send = (room: Room, connId: string, message: unknown) => room.message(connId, JSON.stringify(message));
+// An explicit leave frees the seat at once; a dropped socket is held (tests/room-grace.test.ts).
+const leave = (room: Room, connId: string) => send(room, connId, { type: "leave" });
 
 function setup(players = 2) {
   const clock = createFakeClock();
@@ -155,7 +157,7 @@ describe("play again", () => {
 
   test("if the host leaves on the results screen, the next host can send it", () => {
     const t = finished();
-    t.room.disconnect("c1");
+    leave(t.room, "c1");
     const effects = send(t.room, "c2", { type: "playAgain" });
     expect(t.ofType(effects, "c2", "lobby")[0]).toMatchObject({ phase: "lobby" });
   });
@@ -243,7 +245,7 @@ describe("leaving", () => {
   test("a player leaving mid-match shows as gone in the lobby and the match goes on", () => {
     const t = setup(3);
     t.start();
-    const effects = t.room.disconnect("c3");
+    const effects = leave(t.room, "c3");
     expect(t.ofType(effects, "c1", "lobby")[0].players.map((p) => p.name)).toEqual(["P1", "P2"]);
     t.clock.advance(LIMIT);
     expect(t.ofType(t.emitted, "c1", "roundEnd")).toHaveLength(1);
@@ -254,14 +256,14 @@ describe("leaving", () => {
     const t = setup(2);
     t.start();
     send(t.room, "c1", { type: "guess", word: MATCH_ANSWERS[0] });
-    const effects = t.room.disconnect("c2");
+    const effects = leave(t.room, "c2");
     expect(t.ofType(effects, "c1", "roundEnd")).toHaveLength(1);
   });
 
   test("a leaver stays in the final ranking", () => {
     const t = setup(2);
     t.start();
-    t.room.disconnect("c2");
+    leave(t.room, "c2");
     playOut(t);
     const ranking = t.ofType(t.emitted, "c1", "matchEnd")[0].ranking;
     expect(ranking.map((r) => r.name).sort()).toEqual(["P1", "P2"]);
@@ -270,15 +272,15 @@ describe("leaving", () => {
   test("host passes to the next player mid-match", () => {
     const t = setup(2);
     t.start();
-    const effects = t.room.disconnect("c1");
+    const effects = leave(t.room, "c1");
     expect(t.ofType(effects, "c2", "lobby")[0].players[0]).toMatchObject({ name: "P2", isHost: true });
   });
 
   test("when everyone leaves, the room goes back to the lobby and cancels its timers", () => {
     const t = setup(2);
     t.start();
-    t.room.disconnect("c1");
-    t.room.disconnect("c2");
+    leave(t.room, "c1");
+    leave(t.room, "c2");
     expect(t.clock.pending()).toBe(0);
     const before = t.emitted.length;
     t.clock.advance(LIMIT * 6);
@@ -292,7 +294,7 @@ describe("leaving", () => {
   test("a stale round timer from an abandoned match cannot end the next match's round", () => {
     const t = setup(1);
     t.start();
-    t.room.disconnect("c1");
+    leave(t.room, "c1");
     t.room.connect("c9");
     t.room.message("c9", JSON.stringify({ type: "join", playerId: pid(9), name: "New" }));
     send(t.room, "c9", { type: "start" });
@@ -304,7 +306,7 @@ describe("leaving", () => {
 describe("secrets", () => {
   test("no message in a whole match contains a secret playerId", () => {
     const t = setup(3);
-    const all: Effect[] = [...t.start(), ...send(t.room, "c1", { type: "guess", word: "slate" }), ...t.room.disconnect("c3")];
+    const all: Effect[] = [...t.start(), ...send(t.room, "c1", { type: "guess", word: "slate" }), ...leave(t.room, "c3")];
     playOut(t);
     all.push(...t.emitted, ...send(t.room, "c1", { type: "playAgain" }));
     const text = JSON.stringify(all);

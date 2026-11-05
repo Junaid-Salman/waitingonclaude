@@ -3,18 +3,23 @@
 import type { RankingEntry } from "../../../shared/protocol";
 import { buttonClasses, focusClasses, youBadgeClasses } from "@/lib/colors";
 import { formatDuration } from "@/lib/room/clock";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
 
 interface Props {
   ranking: RankingEntry[];
   youId: string | null;
   isHost: boolean;
   onPlayAgain(): void;
+  offline?: boolean;
 }
 
-export function MatchSummary({ ranking, youId, isHost, onPlayAgain }: Props) {
+export function MatchSummary({ ranking, youId, isHost, onPlayAgain, offline = false }: Props) {
+  const heading = useFocusOnMount<HTMLHeadingElement>();
   return (
     <section aria-label="Final results" data-testid="match-summary" className="flex flex-col gap-4">
-      <h2 className="semibold-display-xs">Final results</h2>
+      <h2 ref={heading} tabIndex={-1} className="semibold-display-xs outline-none">
+        Final results
+      </h2>
       <table className="regular-text-md w-full border-collapse text-left">
         <thead>
           <tr className="semibold-text-sm text-muted">
@@ -49,7 +54,7 @@ export function MatchSummary({ ranking, youId, isHost, onPlayAgain }: Props) {
         </tbody>
       </table>
       {isHost ? (
-        <button type="button" onClick={onPlayAgain} className={`semibold-text-md self-start rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
+        <button type="button" disabled={offline} onClick={onPlayAgain} className={`semibold-text-md self-start rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}>
           Play again
         </button>
       ) : (

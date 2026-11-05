@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { SYSTEM, type GameContext } from "../party/games/types";
-import { createWoordleGame, type WoordleAction, type WoordleOptions, type WoordleState } from "../party/games/woordle/game";
+import { createWoordleGame, type WoordleAction, type WoordleOptions, type WoordleState, type WoordleView } from "../party/games/woordle/game";
 import { answers } from "../party/games/woordle/words";
 import type { RoomServerMessage, RoundSeconds } from "../shared/protocol";
 import { createFakeClock } from "./helpers/fake-clock";
@@ -486,27 +486,31 @@ describe("fairness", () => {
     const h = harness();
     h.guess("a", "slate");
     h.guess("b", "robot");
-    const view = h.game.viewFor(h.state, "b") as {
-      own: { rows: { word: string }[] };
-      opponents: { id: string; rows: unknown[] }[];
-      answer: string | null;
-    };
+    const view = h.game.viewFor(h.state, "b") as WoordleView;
     expect(view.own.rows[0].word).toBe("robot");
     expect(view.opponents).toHaveLength(1);
     expect(JSON.stringify(view.opponents)).not.toContain("slate");
     expect(JSON.stringify(view.opponents)).not.toContain("word");
-    expect(view.answer).toBeNull();
+    expect(view.roundEnd).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("crane");
   });
 
   test("viewFor reveals the answer once the round is over, and not before for any player", () => {
     const h = harness();
-    expect((h.game.viewFor(h.state, "a") as { answer: string | null }).answer).toBeNull();
+    expect((h.game.viewFor(h.state, "a") as WoordleView).roundEnd).toBeNull();
     h.clock.advance(LIMIT);
-    expect((h.game.viewFor(h.state, "a") as { answer: string | null }).answer).toBe("crane");
+    expect((h.game.viewFor(h.state, "a") as WoordleView).roundEnd?.answer).toBe("crane");
   });
 
   test("viewFor is empty for someone who is not in the match", () => {
-    const view = harness().game.viewFor(harness().state, "stranger") as { own: unknown };
-    expect(view.own).toBeNull();
+    expect(harness().game.viewFor(harness().state, "stranger")).toBeNull();
+  });
+});
+
+describe("injected round limits", () => {
+  test("limitMs overrides the time scale for a round length", () => {
+    const h = harness({ options: { timeScale: 0.01, limitMs: (s) => (s === 180 ? 20_000 : 1) } });
+    const [start] = h.ofType("a", "roundStart");
+    expect(start.endsAt - start.startedAt).toBe(20_000);
   });
 });

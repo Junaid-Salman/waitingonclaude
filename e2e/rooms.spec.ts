@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { E2E_GRACE_MS } from "../party/e2e/answers";
 import { createRoom, enterName, joinRoom, newPlayer, playerNames } from "./helpers";
 
 // Runs against partykit.e2e.json: the production room rules with fixed answers and short rounds.
@@ -101,7 +102,7 @@ test("a newcomer is turned away while a match is running", async ({ browser }) =
   await expect(late.getByRole("button", { name: "Try again" })).toBeVisible();
 });
 
-test("when the host leaves, host passes to the next player", async ({ browser }) => {
+test("when the host's tab closes, the seat and host role are held for the grace, then host passes", async ({ browser }) => {
   const host = await newPlayer(browser);
   const guest = await newPlayer(browser);
   const code = await createRoom(host, "Ali");
@@ -110,9 +111,31 @@ test("when the host leaves, host passes to the next player", async ({ browser })
   await expect(guest.getByRole("group", { name: "Round length" })).toHaveCount(0); // not host yet
 
   await host.context().close();
-  await expect.poll(() => playerNames(guest)).toEqual(["Bo"]);
+  const ali = guest.getByTestId("player").filter({ hasText: "Ali" });
+  await expect(ali).toContainText("Reconnecting…");
+  await expect(ali).toContainText("Host"); // still host while the seat is held
+  await expect(guest.getByRole("group", { name: "Round length" })).toHaveCount(0);
+
+  await expect.poll(() => playerNames(guest), { timeout: E2E_GRACE_MS + 10_000 }).toEqual(["Bo"]);
   await expect(guest.getByTestId("player")).toContainText("Host");
   await expect(guest.getByRole("group", { name: "Round length" })).toBeVisible();
+});
+
+test("when the host presses Leave, host passes at once and the host lands on the Woordle page", async ({ browser }) => {
+  const host = await newPlayer(browser);
+  const guest = await newPlayer(browser);
+  const code = await createRoom(host, "Ali");
+  await joinRoom(guest, code, "Bo");
+  await expect.poll(() => playerNames(guest)).toEqual(["Ali", "Bo"]);
+
+  await host.getByRole("button", { name: "Leave room" }).click();
+  await expect(host).toHaveURL(/\/woordle$/);
+  await expect.poll(() => playerNames(guest), { timeout: 3000 }).toEqual(["Bo"]);
+  await expect(guest.getByTestId("player")).toContainText("Host");
+
+  // The tab forgot the room: opening the link again asks for a name instead of rejoining.
+  await host.goto(`/woordle/room/${code}`);
+  await expect(host.getByLabel("Your name")).toBeVisible();
 });
 
 test("the host's round length shows live to everyone else, read-only", async ({ browser }) => {

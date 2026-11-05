@@ -18,6 +18,8 @@ interface WoordleState {
   message: string;
   keyColours: KeyColours;
   answer: string | null;
+  // Bumped on every refused guess, so the board can shake once per refusal.
+  rejections: number;
   type(letter: string): void;
   backspace(): void;
   // Returns the word to send, or null when the guess is not ready to submit.
@@ -33,6 +35,7 @@ const fresh = {
   message: "",
   keyColours: {} as KeyColours,
   answer: null as string | null,
+  rejections: 0,
 };
 
 // The store never computes colours: every row comes from a server guessResult.
@@ -58,7 +61,7 @@ export const useWoordle = create<WoordleState>((set, get) => ({
     const { status, pending, input } = get();
     if (status !== "playing" || pending) return null;
     if (input.length < WORD_LENGTH) {
-      set({ message: "Not enough letters" });
+      set((s) => ({ message: "Not enough letters", rejections: s.rejections + 1 }));
       return null;
     }
     set({ pending: true, message: "" });
@@ -85,10 +88,11 @@ export const useWoordle = create<WoordleState>((set, get) => ({
         }));
         break;
       case "guessRejected":
-        set({
+        set((s) => ({
           pending: false,
-          message: message.reason === "not-a-word" ? "Not in word list" : "Guess not accepted",
-        });
+          message: message.reason === "not-a-word" ? "Not in word list" : message.reason === "rate-limited" ? "Slow down" : "Guess not accepted",
+          rejections: s.rejections + 1,
+        }));
         break;
       case "soloEnd":
         set({ status: message.won ? "won" : "lost", answer: message.answer, pending: false });

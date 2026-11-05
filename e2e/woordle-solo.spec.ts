@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { submitPaced } from "./helpers";
 
 // partykit.e2e.json fixes every answer to "crane" (party/e2e/answers.ts).
 const ANSWER = "crane";
@@ -13,7 +14,7 @@ const scoredTiles = (page: Page) => page.locator('[data-state="green"], [data-st
 
 async function guess(page: Page, word: string) {
   await page.keyboard.type(word);
-  await page.keyboard.press("Enter");
+  await submitPaced(page);
 }
 
 // The client ignores keys while a guess is in flight, so wait for the server's row before the next word.

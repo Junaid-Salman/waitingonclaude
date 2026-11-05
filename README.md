@@ -33,3 +33,11 @@ Open `/woordle/challenge/new`, enter 5 words and pick a time per word (1, 2, 3 o
 
 Locally, `CHALLENGE_KEY` comes from the git-ignored `.env` (`openssl rand -base64 32`). In production it is set with `npx partykit env add CHALLENGE_KEY`, never as `NEXT_PUBLIC_*`.
 
+## Reconnecting and leaving
+
+A player who refreshes or loses their connection keeps their seat for 60 seconds, in the lobby or mid-match: others see "Reconnecting…", the round waits for them, and coming back restores their board, score and host role. After 60 seconds the seat is freed (mid-match they show as "Left" and stay in the ranking). "Leave room" frees the seat at once; pressed while the connection is down, the tab still leaves and the seat frees about 60 seconds after the server notices the drop.
+
+## Limits
+
+Each player may send 2 guesses per second and each connection 30 messages per 10 seconds; faster guesses are answered "Slow down". The Challenge link endpoints are limited per IP address (60 word checks per 10 seconds, 20 links per minute; IPv6 per /64), held in memory for at most two windows and never logged.
+

@@ -5,7 +5,7 @@ import { useMatch, type MatchMessage } from "./match-store";
 import { useRoom } from "./store";
 
 const ERROR_CODES = ["room-full", "room-not-found", "match-in-progress", "replaced", "invalid-name"];
-const MATCH_TYPES = ["roundStart", "guessResult", "guessRejected", "opponentProgress", "roundEnd", "matchEnd"];
+const MATCH_TYPES = ["roundStart", "guessResult", "guessRejected", "opponentProgress", "roundEnd", "matchEnd", "matchSnapshot"];
 
 function isServerMessage(value: unknown): value is RoomServerMessage {
   if (typeof value !== "object" || value === null) return false;
@@ -29,6 +29,12 @@ export function connectRoom(options: { code: string; playerId: string; name: str
   socket.addEventListener("open", () => {
     socket.send(JSON.stringify({ type: "join", playerId: options.playerId, name: options.name }));
   });
+  // The server holds the seat for 60 s, so a drop is shown as "reconnecting", not as an error.
+  // A close we asked for (Leave, unmount, a final error) is not a drop.
+  let closedByUs = false;
+  socket.addEventListener("close", () => {
+    if (!closedByUs) useRoom.getState().dropped();
+  });
 
   socket.addEventListener("message", (event) => {
     let parsed: unknown;
@@ -47,11 +53,21 @@ export function connectRoom(options: { code: string; playerId: string; name: str
     }
     // partysocket reconnects forever after a server-side close. Every error here is final for
     // this attempt, so stop the socket or a rejected player would hammer the room.
-    if (parsed.type === "error") socket.close();
+    if (parsed.type === "error") {
+      closedByUs = true;
+      socket.close();
+    }
   });
 
   return {
-    send: (message) => socket.send(JSON.stringify(message)),
-    close: () => socket.close(),
+    // Only on an open socket. partysocket would queue the frame and flush it on reconnect *before*
+    // our re-join, where the server drops it as seatless; the UI is disabled while reconnecting.
+    send: (message) => {
+      if (socket.readyState === PartySocket.OPEN) socket.send(JSON.stringify(message));
+    },
+    close: () => {
+      closedByUs = true;
+      socket.close();
+    },
   };
 }

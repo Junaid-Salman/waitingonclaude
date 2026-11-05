@@ -1,9 +1,9 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { isRoomCode } from "../../../shared/room-code";
-import type { RoundSeconds } from "../../../shared/protocol";
+import { RECONNECT_GRACE_MS, type RoundSeconds } from "../../../shared/protocol";
 import { connectRoom, type RoomConnection } from "@/lib/room/room-client";
 import { browserSession } from "@/lib/room/session";
 import { useRoom } from "@/lib/room/store";
@@ -40,7 +40,8 @@ export function RoomPage() {
   const joining: Joining | null = chosen ?? (initial?.rejoin ? { name: initial.name, attempt: 0 } : null);
 
   const connection = useRef<RoomConnection | null>(null);
-  const { status, players, phase, roundSeconds, youId, error } = useRoom();
+  const router = useRouter();
+  const { status, players, phase, roundSeconds, youId, error, reconnecting } = useRoom();
 
   const joiningName = joining?.name ?? null;
   const attempt = joining?.attempt ?? 0;
@@ -61,6 +62,16 @@ export function RoomPage() {
   }, [status, code, joiningName]);
 
   const retry = () => joining && setChosen({ ...joining, attempt: joining.attempt + 1 });
+
+  // Frees the seat at once. The tab forgets the room so a refresh does not walk back in. While
+  // reconnecting the leave frame is dropped (nothing is sent on a closed socket) and the seat frees
+  // at the end of its grace instead (Q6).
+  const leave = () => {
+    connection.current?.send({ type: "leave" });
+    connection.current?.close();
+    browserSession().forgetRoom();
+    router.push("/woordle");
+  };
 
   let content;
   if (!valid) {
@@ -84,6 +95,7 @@ export function RoomPage() {
       <MatchScreen
         onGuess={(word) => connection.current?.send({ type: "guess", word })}
         onPlayAgain={() => connection.current?.send({ type: "playAgain" })}
+        onLeave={leave}
       />
     );
   } else if (status === "joined") {
@@ -95,11 +107,21 @@ export function RoomPage() {
         roundSeconds={roundSeconds}
         onRoundSeconds={(seconds: RoundSeconds) => connection.current?.send({ type: "settings", roundSeconds: seconds })}
         onStart={() => connection.current?.send({ type: "start" })}
+        onLeave={leave}
+        offline={reconnecting}
       />
     );
   } else {
     content = <p className="regular-text-md text-muted">Joining room {code}…</p>;
   }
 
-  return <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-8">{content}</div>;
+  return (
+    <div className="mx-auto flex w-full max-w-md flex-1 flex-col px-4 py-8">
+      {/* Always rendered, so screen readers announce the change rather than a new element. */}
+      <p role="status" aria-live="polite" className="regular-text-sm min-h-5 text-muted" data-testid="connection-status">
+        {reconnecting ? `Connection lost. Reconnecting… your seat is held for ${RECONNECT_GRACE_MS / 1000} seconds.` : ""}
+      </p>
+      {content}
+    </div>
+  );
 }

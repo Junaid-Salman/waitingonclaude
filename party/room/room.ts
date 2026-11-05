@@ -1,6 +1,7 @@
 import {
   DEFAULT_ROUND_SECONDS,
   MAX_PLAYERS,
+  RECONNECT_GRACE_MS,
   ROUND_SECONDS_OPTIONS,
   type RoomErrorCode,
   type RoomPhase,
@@ -8,6 +9,7 @@ import {
   type RoundSeconds,
 } from "../../shared/protocol";
 import { SYSTEM, type GameContext, type GameDefinition, type Sender } from "../games/types";
+import { createWindowLimiter, LIMITS } from "../rate-limit";
 import { cleanName, uniqueName } from "./names";
 import type { PlayerId, PublicId } from "./types";
 
@@ -45,6 +47,9 @@ interface Seat {
   name: string;
   joinSeq: number;
   connId: string;
+  // False while the seat is held for a player who dropped; `cancelGrace` stops that hold.
+  connected: boolean;
+  cancelGrace: (() => void) | null;
 }
 
 export interface RoomOptions {
@@ -55,6 +60,8 @@ export interface RoomOptions {
   maxPlayers?: number;
   maxSockets?: number;
   newPublicId?: () => PublicId;
+  // How long a dropped seated player keeps their seat. The e2e server shrinks it.
+  graceMs?: number;
 }
 
 export interface Room {
@@ -73,6 +80,11 @@ export function createRoom(options: RoomOptions): Room {
   const newPublicId = options.newPublicId ?? randomPublicId;
   const clock = options.clock ?? realClock;
   const emit = options.emit ?? (() => {});
+  const graceMs = options.graceMs ?? RECONNECT_GRACE_MS;
+  // Frames per socket (counted before parsing, so junk counts) and game actions per seat (so a
+  // takeover from a second tab does not reset it).
+  const frameLimiter = createWindowLimiter({ ...LIMITS.frames, now: () => clock.now() });
+  const actionLimiter = createWindowLimiter({ ...LIMITS.guesses, now: () => clock.now() });
 
   let created = false;
   // "match" lasts from Start until the host sends Play again, results screen included.
@@ -80,6 +92,8 @@ export function createRoom(options: RoomOptions): Room {
   let matchState: unknown = null;
   let roundSeconds: RoundSeconds = DEFAULT_ROUND_SECONDS;
   let nextJoinSeq = 0;
+  // Explicit, not derived from join order: a host in their reconnect grace stays host.
+  let hostPlayerId: PlayerId | null = null;
 
   // Every open socket; `playerId` is set once the socket holds a seat.
   const sockets = new Map<string, { playerId: PlayerId | null }>();
@@ -94,18 +108,24 @@ export function createRoom(options: RoomOptions): Room {
   };
 
   const ordered = () => [...seats.values()].sort((a, b) => a.joinSeq - b.joinSeq);
-  const hostSeat = () => ordered()[0];
+  const present = () => ordered().filter((s) => s.connected);
+  const hostSeat = () => (hostPlayerId ? seats.get(hostPlayerId) : undefined);
 
-  // One lobby message per seat, because each carries that player's own `youId`.
+  // Host passes to the earliest-joined connected seat; if everyone is in grace, the earliest held one.
+  function passHost() {
+    hostPlayerId = (present()[0] ?? ordered()[0])?.playerId ?? null;
+  }
+
+  // One lobby message per connected seat, because each carries that player's own `youId`.
   function broadcastLobby(): Effect[] {
     const host = hostSeat();
     const players = ordered().map((s) => ({
       id: s.publicId,
       name: s.name,
       isHost: s === host,
-      connected: true,
+      connected: s.connected,
     }));
-    return ordered().map((s) => send(s.connId, { type: "lobby", players, roundSeconds, youId: s.publicId, phase }));
+    return present().map((s) => send(s.connId, { type: "lobby", players, roundSeconds, youId: s.publicId, phase }));
   }
 
   function cancelTimers() {
@@ -121,8 +141,9 @@ export function createRoom(options: RoomOptions): Room {
 
   // What the room lends the game. Games only ever see public ids.
   function makeContext(out: Effect[]): GameContext<unknown> {
+    // A held seat has no live socket; it gets the state back in a snapshot when it returns.
     const sendToSeats = (skip: PublicId | null, message: RoomServerMessage) => {
-      for (const s of ordered()) if (s.publicId !== skip) out.push(send(s.connId, message));
+      for (const s of present()) if (s.publicId !== skip) out.push(send(s.connId, message));
     };
     return {
       now: () => clock.now(),
@@ -140,7 +161,7 @@ export function createRoom(options: RoomOptions): Room {
         return cancel;
       },
       sendTo(id, message) {
-        const seat = ordered().find((s) => s.publicId === id);
+        const seat = present().find((s) => s.publicId === id);
         if (seat) out.push(send(seat.connId, message));
       },
       broadcast: (message) => sendToSeats(null, message),
@@ -156,6 +177,26 @@ export function createRoom(options: RoomOptions): Room {
     return out;
   }
 
+  // The seat is gone for good: grace expired or the player pressed Leave. Only now does the game
+  // hear about it, so a player who merely dropped keeps the round open.
+  function removeSeat(playerId: PlayerId): Effect[] {
+    const seat = seats.get(playerId);
+    if (!seat) return [];
+    seat.cancelGrace?.();
+    seats.delete(playerId);
+    actionLimiter.forget(playerId);
+    if (hostPlayerId === playerId) passHost();
+
+    // Nobody left at all: drop the match so the next arrival finds a lobby, not a stale one.
+    if (seats.size === 0) {
+      backToLobby();
+      return [];
+    }
+    const out = broadcastLobby();
+    if (phase === "match" && matchState !== null) matchState = game.onPlayerLeave(matchState, seat.publicId, makeContext(out));
+    return out;
+  }
+
   function join(connId: string, playerId: PlayerId, rawName: string): Effect[] {
     const name = cleanName(rawName);
     if (!name) return reject(connId, "invalid-name");
@@ -163,19 +204,27 @@ export function createRoom(options: RoomOptions): Room {
     const existing = seats.get(playerId);
     if (existing) {
       // Newest connection wins. The old socket may be a refresh that has not closed yet, or a
-      // duplicated tab sharing this sessionStorage.
+      // duplicated tab sharing this sessionStorage. A seat in its grace has no socket to replace.
       const effects: Effect[] = [];
-      if (existing.connId !== connId) {
+      if (existing.connected && existing.connId !== connId) {
         const old = sockets.get(existing.connId);
         if (old) old.playerId = null;
         effects.push(
           send(existing.connId, { type: "error", code: "replaced" }),
           { kind: "close", connId: existing.connId, code: CLOSE_CODES.replaced },
         );
-        existing.connId = connId;
       }
+      existing.cancelGrace?.();
+      existing.cancelGrace = null;
+      existing.connected = true;
+      existing.connId = connId;
       sockets.get(connId)!.playerId = playerId;
-      return [...effects, ...broadcastLobby()];
+      effects.push(...broadcastLobby());
+      // Back in a running match: the game redraws it for this player (lobby first, then snapshot).
+      if (phase === "match" && matchState !== null) {
+        matchState = game.onPlayerReturn(matchState, existing.publicId, makeContext(effects));
+      }
+      return effects;
     }
 
     if (phase === "match") return reject(connId, "match-in-progress");
@@ -189,7 +238,10 @@ export function createRoom(options: RoomOptions): Room {
       name: uniqueName([...seats.values()].map((s) => s.name), name),
       joinSeq: nextJoinSeq++,
       connId,
+      connected: true,
+      cancelGrace: null,
     });
+    if (hostPlayerId === null) hostPlayerId = playerId;
     sockets.get(connId)!.playerId = playerId;
     return broadcastLobby();
   }
@@ -220,7 +272,10 @@ export function createRoom(options: RoomOptions): Room {
 
     message(connId, raw) {
       const socket = sockets.get(connId);
-      if (!socket || raw.length > MAX_FRAME_CHARS) return [];
+      if (!socket) return [];
+      // Counted before anything else, so oversized or malformed frames still use up the budget.
+      if (!frameLimiter.allow(connId)) return [];
+      if (raw.length > MAX_FRAME_CHARS) return [];
 
       let value: unknown;
       try {
@@ -266,6 +321,11 @@ export function createRoom(options: RoomOptions): Room {
         return out;
       }
 
+      if (msg.type === "leave") {
+        socket.playerId = null;
+        return removeSeat(seat.playerId);
+      }
+
       if (msg.type === "playAgain") {
         if (!isHost || phase !== "match" || matchState === null || !game.isFinished(matchState)) return [];
         backToLobby();
@@ -280,26 +340,31 @@ export function createRoom(options: RoomOptions): Room {
       } catch {
         action = null;
       }
-      return action === null ? [] : act(seat.publicId, action);
+      if (action === null) return [];
+      if (!actionLimiter.allow(seat.playerId)) {
+        const reply = game.rateLimitedReply(action);
+        return reply ? [send(connId, reply)] : [];
+      }
+      return act(seat.publicId, action);
     },
 
-    // Interim behaviour until Phase 5: a dropped player leaves at once and host passes to the
-    // earliest-joined remaining player. Phase 5 replaces this with a 60 second seat hold.
+    // A dropped seated player keeps the seat for `graceMs`, in the lobby or mid-match: it still
+    // counts toward the cap, the host stays host, and a round waits for them. Coming back with the
+    // same playerId restores everything; otherwise the seat is removed when the hold runs out.
     disconnect(connId) {
       const socket = sockets.get(connId);
       sockets.delete(connId);
+      frameLimiter.forget(connId);
       if (!socket?.playerId) return [];
       const seat = seats.get(socket.playerId);
       if (!seat || seat.connId !== connId) return []; // replaced earlier; the seat lives on
-      seats.delete(socket.playerId);
-
-      const out = broadcastLobby();
-      if (phase === "match" && matchState !== null) {
-        // Nobody left to watch: drop the match so the next arrival finds a lobby, not a stale one.
-        if (seats.size === 0) backToLobby();
-        else matchState = game.onPlayerLeave(matchState, seat.publicId, makeContext(out));
-      }
-      return out;
+      seat.connected = false;
+      const playerId = seat.playerId;
+      seat.cancelGrace = clock.setTimer(graceMs, () => {
+        seat.cancelGrace = null;
+        emit(removeSeat(playerId));
+      });
+      return broadcastLobby();
     },
   };
 }

@@ -10,3 +10,10 @@ export const E2E_ROOM_ANSWERS = ["crane", "slate", "robot", "moist", "light"] as
 // is not scaled: it stays long enough for a test to see the round summary.
 export const E2E_TIME_SCALE = 0.01;
 export const E2E_REVEAL_MS = 1500;
+
+// Reconnect grace for rooms: long enough for a refresh to come back, short enough to test expiry.
+export const E2E_GRACE_MS = 5000;
+
+// Room round limits in e2e: 2 min and 5 min stay fast (1.2 s and 3 s, as E2E_TIME_SCALE gives);
+// 3 min, the default, lasts 20 s so a test can refresh a page mid-round and see it restored.
+export const E2E_ROUND_MS = { 120: 1200, 180: 20_000, 300: 3000 } as const;

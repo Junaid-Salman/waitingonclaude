@@ -26,7 +26,15 @@ export interface GameDefinition<State, Settings, Action> {
   parseAction(input: unknown): Action | null;
   createState(players: RoomPlayer[], settings: Settings, ctx: GameContext<Action>): State;
   onAction(state: State, sender: Sender, action: Action, ctx: GameContext<Action>): State;
+  // The player's seat is gone for good: their reconnect grace expired or they pressed Leave. A
+  // player who merely dropped is still in the match until then, and must count as playing.
   onPlayerLeave(state: State, id: PublicId, ctx: GameContext<Action>): State;
+  // A seated player came back (refresh or reconnect) while the match runs. The game sends them
+  // whatever they need to redraw the match, through ctx.sendTo and built from viewFor.
+  onPlayerReturn(state: State, id: PublicId, ctx: GameContext<Action>): State;
+  // The room owns rate limits but not the game's vocabulary: this names the reply to an action
+  // the room refused for arriving too fast (null means drop it silently).
+  rateLimitedReply(action: Action): RoomServerMessage | null;
   // The fairness boundary: what this player may see (own letters, opponents' colours, the answer
   // only once the round is over).
   viewFor(state: State, id: PublicId): unknown;

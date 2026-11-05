@@ -41,9 +41,13 @@ export function connectChallenge(): ChallengeConnection {
       socket.close();
     }
   });
+  // Until the socket has opened once, a close is just a failed connect attempt that partysocket
+  // retries; reacting to each one made Start flicker. The 10 s connect timeout covers "never".
+  let opened = false;
+  socket.addEventListener("open", () => void (opened = true));
   // A reopened socket lands in a brand-new server session, so the run in progress is gone.
   socket.addEventListener("close", () => {
-    if (!closedByUs) useChallenge.getState().disconnected();
+    if (!closedByUs && opened) useChallenge.getState().disconnected();
   });
 
   return {

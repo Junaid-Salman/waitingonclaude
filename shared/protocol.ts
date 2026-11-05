@@ -35,14 +35,20 @@ export type RoomClientMessage =
   | { type: "settings"; roundSeconds: RoundSeconds }
   | { type: "start" }
   | { type: "guess"; word: string }
-  | { type: "playAgain" };
+  | { type: "playAgain" }
+  // Frees the seat at once (no reconnect grace) and passes host on if needed.
+  | { type: "leave" };
 
 export interface LobbyPlayer {
   id: string;
   name: string;
   isHost: boolean;
+  // False while the seat is held for a player who dropped (the 60 second reconnect grace).
   connected: boolean;
 }
+
+// How long a dropped seated player keeps their seat.
+export const RECONNECT_GRACE_MS = 60_000;
 
 export type RoomErrorCode =
   | "room-full"
@@ -95,7 +101,34 @@ export type RoomServerMessage =
       results: RoundPlayerResult[];
       nextAt: number;
     }
-  | { type: "matchEnd"; ranking: RankingEntry[] };
+  | { type: "matchEnd"; ranking: RankingEntry[] }
+  // Sent only to a player who returns to a running match (a refresh or a dropped connection),
+  // right after their lobby message. Built from the game's viewFor, so it obeys the same fairness
+  // rule as every other message: own letters, opponents' colours, the answer only once revealed.
+  | MatchSnapshot;
+
+export interface OpponentSnapshot {
+  id: string;
+  rows: TileColour[][];
+  solvedMs: number | null;
+}
+
+export interface MatchSnapshot {
+  type: "matchSnapshot";
+  // The server clock when the snapshot was built, for the client's clock offset.
+  serverNow: number;
+  stage: "playing" | "reveal" | "finished";
+  round: number;
+  totalRounds: number;
+  startedAt: number;
+  endsAt: number;
+  players: RosterPlayer[];
+  own: { rows: { word: string; colours: TileColour[] }[]; solvedMs: number | null };
+  opponents: OpponentSnapshot[];
+  // Set from the reveal onwards.
+  roundEnd: { answer: string; winnerId: string | null; results: RoundPlayerResult[]; nextAt: number } | null;
+  ranking: RankingEntry[] | null;
+}
 
 // Challenge messages (party "challenge").
 //
@@ -142,7 +175,7 @@ export interface SealResponse {
   token: string;
 }
 export interface SealError {
-  error: "invalid" | "not-configured";
+  error: "invalid" | "not-configured" | "rate-limited";
   // Per-word reasons, so the form can mark each word. Never echoes the words themselves.
   words?: { index: number; reason: WordProblem }[];
   limit?: boolean;

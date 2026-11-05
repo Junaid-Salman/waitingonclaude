@@ -27,8 +27,22 @@ export async function joinRoom(page: Page, code: string, name: string) {
 
 export const playerNames = (page: Page) => page.getByTestId("player").locator("span.min-w-0").allTextContents();
 
+// The server accepts at most 2 guesses per second per player and answers faster ones with
+// "Slow down". Tests type far faster than people, so each page spaces the moment it submits: the
+// gap is measured between Enter presses (not between typing starts, whose delay varies). 600 ms
+// makes any three submits span 1.2 s, so a first frame can be 200 ms late on the way to the server
+// before two of three share a server-side second.
+const SUBMIT_GAP_MS = 600;
+const lastSubmitAt = new WeakMap<Page, number>();
+export async function submitPaced(page: Page) {
+  const wait = (lastSubmitAt.get(page) ?? 0) + SUBMIT_GAP_MS - Date.now();
+  if (wait > 0) await page.waitForTimeout(wait);
+  await page.keyboard.press("Enter");
+  lastSubmitAt.set(page, Date.now());
+}
+
 // Types a word on the physical keyboard and submits it.
 export async function typeGuess(page: Page, word: string) {
   await page.keyboard.type(word);
-  await page.keyboard.press("Enter");
+  await submitPaced(page);
 }

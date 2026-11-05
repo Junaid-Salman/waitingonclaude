@@ -2,7 +2,13 @@ import { describe, expect, test } from "vitest";
 import { createSoloSession } from "../party/games/woordle/solo-session";
 
 const guess = (word: string) => JSON.stringify({ type: "guess", word });
-const make = (answer = "crane") => createSoloSession({ pickAnswer: () => answer });
+// A clock that moves 600 ms per read keeps every guess under the 2-per-second limit; the limit
+// itself has its own tests below.
+const spacedClock = () => {
+  let t = 0;
+  return () => (t += 600);
+};
+const make = (answer = "crane") => createSoloSession({ pickAnswer: () => answer, now: spacedClock() });
 
 describe("solo session", () => {
   test("start announces the guess limit", () => {
@@ -47,9 +53,25 @@ describe("solo session", () => {
 
   test("newGame after the end starts a fresh game with a new pick", () => {
     const answers = ["crane", "robot"];
-    const session = createSoloSession({ pickAnswer: () => answers.shift() ?? "robot" });
+    const session = createSoloSession({ pickAnswer: () => answers.shift() ?? "robot", now: spacedClock() });
     session.handle(guess("crane"));
     expect(session.handle(JSON.stringify({ type: "newGame" }))).toEqual([{ type: "soloStart", maxGuesses: 6 }]);
     expect(session.handle(guess("robot")).at(-1)).toEqual({ type: "soloEnd", won: true, answer: "robot" });
   });
 });
+
+describe("solo rate limits", () => {
+  test("a third guess inside one second is rejected as rate-limited and consumes nothing", () => {
+    const session = createSoloSession({ pickAnswer: () => "crane", now: () => 0 });
+    session.handle(guess("slate"));
+    session.handle(guess("robot"));
+    expect(session.handle(guess("moist"))).toEqual([{ type: "guessRejected", reason: "rate-limited" }]);
+  });
+
+  test("the 31st frame in 10 seconds is dropped, junk included", () => {
+    const session = createSoloSession({ pickAnswer: () => "crane", now: () => 0 });
+    for (let i = 0; i < 30; i++) session.handle("junk");
+    expect(session.handle(JSON.stringify({ type: "newGame" }))).toEqual([]);
+  });
+});
+

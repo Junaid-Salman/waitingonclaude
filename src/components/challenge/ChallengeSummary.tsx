@@ -3,11 +3,15 @@
 import type { ChallengeSummaryInfo } from "@/lib/challenge/store";
 import { formatDuration } from "@/lib/room/clock";
 import { buttonClasses, focusClasses } from "@/lib/colors";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
 
 export function ChallengeSummary({ summary, onPlayAgain }: { summary: ChallengeSummaryInfo; onPlayAgain(): void }) {
+  const heading = useFocusOnMount<HTMLHeadingElement>();
   return (
     <section aria-label="Challenge results" data-testid="challenge-summary" className="flex flex-col gap-4">
-      <h2 className="semibold-display-xs">Challenge complete</h2>
+      <h2 ref={heading} tabIndex={-1} className="semibold-display-xs outline-none">
+        Challenge complete
+      </h2>
       <p className="medium-text-lg" data-testid="summary-solved">
         {summary.solved} of {summary.rounds.length} solved
       </p>

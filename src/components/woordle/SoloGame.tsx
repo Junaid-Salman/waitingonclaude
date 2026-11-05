@@ -9,7 +9,7 @@ import { Grid } from "./Grid";
 import { Keyboard } from "./Keyboard";
 
 export function SoloGame() {
-  const { status, rows, input, maxGuesses, keyColours, message, answer } = useWoordle();
+  const { status, rows, input, maxGuesses, keyColours, message, answer, rejections } = useWoordle();
   const connection = useRef<SoloConnection | null>(null);
 
   useEffect(() => {
@@ -39,7 +39,7 @@ export function SoloGame() {
         {status === "connecting" && !message ? "Connecting…" : message}
       </p>
 
-      <Grid rows={rows} input={input} maxGuesses={maxGuesses} />
+      <Grid rows={rows} input={input} maxGuesses={maxGuesses} shake={rejections} solvedRow={status === "won" ? rows.length - 1 : null} />
 
       {finished ? (
         <div className="mx-auto flex flex-col items-center gap-3 text-center" data-testid="end-panel">

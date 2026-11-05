@@ -58,3 +58,36 @@ describe("room store", () => {
     expect(useRoom.getState()).toMatchObject({ status: "joined", error: null });
   });
 });
+
+describe("room store: reconnecting", () => {
+  test("a drop after joining shows reconnecting until the next lobby", () => {
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    useRoom.getState().dropped();
+    expect(useRoom.getState()).toMatchObject({ status: "joined", reconnecting: true });
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    expect(useRoom.getState().reconnecting).toBe(false);
+  });
+
+  test("a drop before joining is not a reconnect", () => {
+    useRoom.getState().connecting();
+    useRoom.getState().dropped();
+    expect(useRoom.getState().reconnecting).toBe(false);
+  });
+});
+
+describe("reconnecting", () => {
+  test("a drop after joining shows reconnecting; the next lobby clears it", () => {
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    useRoom.getState().dropped();
+    expect(useRoom.getState().reconnecting).toBe(true);
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    expect(useRoom.getState().reconnecting).toBe(false);
+  });
+
+  test("a reconnect that ends in an error clears reconnecting", () => {
+    useRoom.getState().receive({ ...lobby, players: [...lobby.players] });
+    useRoom.getState().dropped();
+    useRoom.getState().receive({ type: "error", code: "match-in-progress" });
+    expect(useRoom.getState()).toMatchObject({ status: "error", error: "match-in-progress", reconnecting: false });
+  });
+});

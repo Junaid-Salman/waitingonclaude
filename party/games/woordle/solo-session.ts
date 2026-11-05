@@ -1,4 +1,5 @@
 import { MAX_GUESSES, type SoloServerMessage } from "../../../shared/protocol";
+import { createWindowLimiter, LIMITS } from "../../rate-limit";
 import { createBoard, submitGuess, type Board } from "./board";
 
 // Inbound frames are tiny ({"type":"guess","word":"crane"}); anything larger is hostile.
@@ -28,8 +29,11 @@ function parse(raw: string): ParsedMessage | null {
 
 // Pure session logic with no PartyKit imports, so it is unit-testable. `pickAnswer` is injected:
 // production draws at random, the e2e server cycles a fixed list.
-export function createSoloSession({ pickAnswer }: { pickAnswer: () => string }): SoloSession {
+export function createSoloSession({ pickAnswer, now = Date.now }: { pickAnswer: () => string; now?: () => number }): SoloSession {
   let board: Board = createBoard(pickAnswer());
+  // One session per connection, so these are the per-connection and per-player limits.
+  const frames = createWindowLimiter({ ...LIMITS.frames, now });
+  const guesses = createWindowLimiter({ ...LIMITS.guesses, now });
 
   return {
     start() {
@@ -37,6 +41,7 @@ export function createSoloSession({ pickAnswer }: { pickAnswer: () => string }):
     },
 
     handle(raw) {
+      if (!frames.allow("frames")) return [];
       const message = parse(raw);
       if (!message) return [];
 
@@ -46,6 +51,7 @@ export function createSoloSession({ pickAnswer }: { pickAnswer: () => string }):
         return [{ type: "soloStart", maxGuesses: MAX_GUESSES }];
       }
 
+      if (!guesses.allow("guesses")) return [{ type: "guessRejected", reason: "rate-limited" }];
       const { board: next, outcome } = submitGuess(board, message.word);
       board = next;
       if (outcome.kind === "rejected") return [{ type: "guessRejected", reason: outcome.reason }];

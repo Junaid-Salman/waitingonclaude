@@ -7,6 +7,7 @@ import {
 } from "../../shared/protocol";
 import { createBoard, submitGuess, type Board } from "../games/woordle/board";
 import { isValidGuess } from "../games/woordle/words";
+import { createWindowLimiter, LIMITS } from "../rate-limit";
 import type { Clock } from "../room/room";
 import type { ChallengePayload } from "./token";
 
@@ -65,6 +66,7 @@ export function createChallengeSession(options: ChallengeSessionOptions): Challe
   const revealMs = options.revealMs ?? 5000;
   const timeScale = options.timeScale ?? 1;
   const isWord = options.isWord ?? isValidGuess;
+  const guessLimiter = createWindowLimiter({ ...LIMITS.guesses, now: () => clock.now() });
 
   let phase: Phase = "idle";
   let words: string[] = [];
@@ -128,6 +130,10 @@ export function createChallengeSession(options: ChallengeSessionOptions): Challe
 
     guess(raw) {
       if (phase === "idle") return;
+      if (!guessLimiter.allow("guesses")) {
+        send({ type: "guessRejected", reason: "rate-limited" });
+        return;
+      }
       // A guess at or after endsAt is late even if the round timer has not fired yet.
       if (phase !== "round" || clock.now() >= endsAt) {
         send({ type: "guessRejected", reason: "round-over" });

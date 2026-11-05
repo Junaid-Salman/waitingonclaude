@@ -151,3 +151,64 @@ describe("match store: ending", () => {
     expect(s()).toMatchObject({ stage: "idle", round: 0, roster: [] });
   });
 });
+
+describe("match store: snapshot after a refresh or reconnect", () => {
+  const snapshot = (over: Partial<Extract<MatchMessage, { type: "matchSnapshot" }>> = {}): MatchMessage => ({
+    type: "matchSnapshot",
+    serverNow: 50_000,
+    stage: "playing",
+    round: 2,
+    totalRounds: 5,
+    startedAt: 40_000,
+    endsAt: 220_000,
+    players: [{ id: "me", name: "Me" }, { id: "op", name: "Op" }],
+    own: { rows: [{ word: "slate", colours: ["grey", "green", "grey", "grey", "yellow"] }], solvedMs: null },
+    opponents: [{ id: "op", rows: [["grey", "grey", "grey", "grey", "grey"]], solvedMs: null }],
+    roundEnd: null,
+    ranking: null,
+    ...over,
+  });
+
+  test("a running round restores own rows, key colours, opponents, timer and the clock offset", () => {
+    s().receive(snapshot(), 49_000);
+    expect(s()).toMatchObject({ stage: "playing", round: 2, endsAt: 220_000, offset: 1000 });
+    expect(s().rows.map((r) => r.word)).toEqual(["slate"]);
+    expect(s().keyColours).toMatchObject({ l: "green", e: "yellow", s: "grey" });
+    expect(s().opponents.op.rows).toHaveLength(1);
+    expect(s().roster.map((p) => p.name)).toEqual(["Me", "Op"]);
+    typeWord("crane");
+    expect(s().input).toBe("crane"); // the board is playable again
+  });
+
+  test("a snapshot during the reveal lands on the round summary with its countdown", () => {
+    s().receive(snapshot({ stage: "reveal", roundEnd: { answer: "robot", winnerId: "op", results: [], nextAt: 55_000 } }), 50_000);
+    expect(s()).toMatchObject({ stage: "reveal", roundEnd: { round: 2, answer: "robot", nextAt: 55_000 } });
+  });
+
+  test("a snapshot after the match lands on the results", () => {
+    const ranking = [{ id: "me", name: "Me", roundsWon: 3, totalMs: 1, rank: 1 }];
+    s().receive(snapshot({ stage: "finished", ranking }), 50_000);
+    expect(s()).toMatchObject({ stage: "finished", ranking });
+  });
+
+  test("a solved board stays locked after the snapshot", () => {
+    s().receive(snapshot({ own: { rows: [{ word: "robot", colours: Array(5).fill("green") }], solvedMs: 3000 } }), 50_000);
+    expect(isDone(s())).toBe(true);
+  });
+
+  test("a snapshot replaces whatever the tab showed before the drop", () => {
+    s().receive(roundStart(1), 0);
+    s().receive(result("about"), 0);
+    s().receive(snapshot(), 50_000);
+    expect(s().rows.map((r) => r.word)).toEqual(["slate"]);
+  });
+
+  test("every refused guess bumps the rejection counter (it drives the shake)", () => {
+    s().receive(roundStart(), 0);
+    typeWord("cra");
+    s().submit();
+    s().receive({ type: "guessRejected", reason: "rate-limited" }, 0);
+    expect(s().rejections).toBe(2);
+    expect(s().message).toBe("Slow down");
+  });
+});

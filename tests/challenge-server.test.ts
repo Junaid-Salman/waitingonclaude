@@ -105,6 +105,15 @@ describe("challenge server adapter", () => {
   });
 });
 
+describe("challenge socket frame limit", () => {
+  test("the 31st frame from one connection is dropped, junk included", async () => {
+    const { sent, send } = setup({ CHALLENGE_KEY: TEST_KEY });
+    for (let i = 0; i < 30; i++) await send("junk");
+    await send({ type: "begin", token: "nonsense" });
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("seal body size", () => {
   test("a declared oversize body is refused without being read", async () => {
     let read = false;

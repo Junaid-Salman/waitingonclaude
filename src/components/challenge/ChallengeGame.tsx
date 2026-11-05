@@ -8,6 +8,7 @@ import { isPlausibleToken } from "@/lib/challenge/link";
 import { isDone, useChallenge } from "@/lib/challenge/store";
 import { buttonClasses, focusClasses, secondaryButtonClasses } from "@/lib/colors";
 import { formatCountdown, formatDuration, remainingMs } from "@/lib/room/clock";
+import { useFocusOnMount } from "@/lib/use-focus-on-mount";
 import { useNow } from "@/lib/use-now";
 import { useKeyboardInput } from "@/lib/woordle/use-keyboard-input";
 import { RoundTimer } from "@/components/room/RoundTimer";
@@ -21,11 +22,12 @@ const CONNECT_TIMEOUT_MS = 10_000;
 function Reveal() {
   const { roundEnd, totalRounds, offset } = useChallenge();
   const now = useNow();
+  const heading = useFocusOnMount<HTMLHeadingElement>();
   if (!roundEnd) return null;
   const last = roundEnd.round >= totalRounds;
   return (
     <section aria-label="Round result" data-testid="round-summary" className="flex flex-col gap-3">
-      <h2 className="semibold-display-xs">
+      <h2 ref={heading} tabIndex={-1} className="semibold-display-xs outline-none">
         Word {roundEnd.round} of {totalRounds}
       </h2>
       <p className="regular-text-md">
@@ -130,7 +132,7 @@ export function ChallengeGame({ token }: { token: string }) {
         <p role="status" aria-live="polite" className="regular-text-sm min-h-5 text-center">
           {state.solvedMs !== null ? `Solved in ${formatDuration(state.solvedMs)}!` : done ? "Out of guesses." : state.message}
         </p>
-        <Grid rows={state.rows} input={state.input} maxGuesses={MAX_GUESSES} />
+        <Grid rows={state.rows} input={state.input} maxGuesses={MAX_GUESSES} shake={state.rejections} solvedRow={state.solvedMs !== null ? state.rows.length - 1 : null} />
         <Keyboard colours={state.keyColours} onLetter={onLetter} onEnter={onEnter} onBackspace={onBackspace} />
       </div>
     );

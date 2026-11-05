@@ -2,6 +2,7 @@ import type * as Party from "partykit/server";
 import { getGame } from "./games";
 import type { GameDefinition } from "./games/types";
 import { applyEffects } from "./room/apply";
+import { frameText } from "./rate-limit";
 import { handleRoomRequest } from "./room/http";
 import { createRoom, realClock, type Effect } from "./room/room";
 
@@ -9,6 +10,8 @@ export interface RoomServerOptions {
   // Defaults to the registered Woordle game. The e2e server passes one with fixed answers and a
   // time scale.
   game?: GameDefinition<unknown, unknown, unknown>;
+  // Reconnect grace; defaults to 60 s. The e2e server shrinks it so expiry is testable.
+  graceMs?: number;
 }
 
 // Thin PartyKit adapter. All rules live in party/room/room.ts.
@@ -21,6 +24,7 @@ export function createRoomServer(opts: RoomServerOptions = {}) {
     private room = createRoom({
       game,
       clock: realClock,
+      graceMs: opts.graceMs,
       // Timers fire outside any message handler, so their effects are applied here.
       emit: (effects) => this.apply(effects),
     });
@@ -36,8 +40,7 @@ export function createRoomServer(opts: RoomServerOptions = {}) {
     }
 
     onMessage(message: string | ArrayBuffer | ArrayBufferView, sender: Party.Connection) {
-      if (typeof message !== "string") return;
-      this.apply(this.room.message(sender.id, message));
+      this.apply(this.room.message(sender.id, frameText(message)));
     }
 
     onClose(conn: Party.Connection) {

@@ -5,6 +5,7 @@
 export interface KeyValueStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+  removeItem(key: string): void;
 }
 
 const KEYS = { playerId: "woc:playerId", name: "woc:name", room: "woc:room" } as const;
@@ -15,6 +16,8 @@ export interface Session {
   // The room this tab last joined, so a refresh re-joins without asking for the name again.
   joinedRoom(): string | null;
   remember(room: string, name: string): void;
+  // After Leave: a refresh must not walk straight back into the room. The name is kept.
+  forgetRoom(): void;
 }
 
 export function createSession(storage: KeyValueStorage | null, newId: () => string = () => crypto.randomUUID()): Session {
@@ -51,6 +54,14 @@ export function createSession(storage: KeyValueStorage | null, newId: () => stri
     remember(room, name) {
       write(KEYS.room, room);
       write(KEYS.name, name);
+    },
+    forgetRoom() {
+      memory.delete(KEYS.room);
+      try {
+        storage?.removeItem(KEYS.room);
+      } catch {
+        // memory copy above is gone, which is enough for this tab
+      }
     },
   };
 }

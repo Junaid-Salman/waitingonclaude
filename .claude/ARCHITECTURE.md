@@ -18,8 +18,8 @@ Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScri
 | 1 Woordle core | Solo game, word lists, scoring, design tokens | Done, committed |
 | 2 Rooms | Create/join by link, lobby, host, cap, takeover | Done, committed |
 | 3 Time Race | Rounds, timers, ranking, `start`/`playAgain`, opponent boards | Done, committed |
-| 4 Challenge | AES-GCM link, solver session, creator form | Built, awaiting sign-off (not committed) |
-| 5 Polish | 60 s reconnect grace, rate limits, animations, mobile | Not started |
+| 4 Challenge | AES-GCM link, solver session, creator form | Done, committed |
+| 5 Polish | 60 s reconnect grace, Leave, rate limits, animations, mobile | Built, awaiting sign-off (not committed) |
 | 6 Launch | Deploy, playtest | Not started |
 
 Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/Plans/`, one review in `.claude/Reviews/`.
@@ -31,7 +31,10 @@ Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/P
 | Scoring, guesses, solo rules | `party/games/woordle/{score,board,solo-session}.ts`, `tests/{score,board}.test.ts` | word JSON |
 | Match rules (rounds, timers, early end, ranking) | `party/games/woordle/game.ts`, `ranking.ts`, `tests/woordle-game.test.ts` | |
 | Game contract (what a game may do) | `party/games/types.ts` (Spec 2.4 mirrors it) | |
-| Room rules (join, cap, host, takeover, start, playAgain, timers) | `party/room/room.ts` (all rules), `tests/room.test.ts`, `tests/room-match.test.ts` | `party/main.ts` (thin adapter) |
+| Room rules (join, cap, host, takeover, start, playAgain, leave, grace, timers) | `party/room/room.ts` (all rules), `tests/room.test.ts`, `tests/room-match.test.ts`, `tests/room-grace.test.ts` | `party/main.ts` (thin adapter) |
+| Rate limits | `party/rate-limit.ts` (shared sliding window), `tests/rate-limit.test.ts`, `tests/room-rate-limit.test.ts` | |
+| Reconnect / board restore | `viewFor` + `onPlayerReturn` in `party/games/woordle/game.ts`, `tests/woordle-snapshot.test.ts`, `matchSnapshot` in `src/lib/room/match-store.ts` | |
+| Animations | `src/components/woordle/{Tile,Grid,Keyboard}.tsx`, `src/lib/motion/timing.ts`, `src/components/MotionProvider.tsx` | |
 | Message shapes | `shared/protocol.ts`, `shared/room-code.ts` | Spec 2.5 unless changing it |
 | Room HTTP / CORS | `party/room/http.ts`, `tests/http.test.ts` | |
 | Lobby / room UI | `src/components/room/RoomPage.tsx` (picks lobby or match screen), then the component you need | |
@@ -57,7 +60,8 @@ shared/                    code used by BOTH sides. No secrets, no word data
   protocol.ts              all message types + constants (MAX_PLAYERS, ROUND_SECONDS_OPTIONS...)
   room-code.ts             4-letter code alphabet, isRoomCode, generateRoomCode
 party/                     SERVER. Never imported by src/ (ESLint-enforced)
-  main.ts                  PartyKit adapter for rooms: createRoomServer({game?}), real clock, applies timer effects
+  main.ts                  PartyKit adapter for rooms: createRoomServer({game?, graceMs?}), real clock, applies timer effects
+  rate-limit.ts            sliding-window limiter + the Spec's LIMITS, shared by rooms, solo, Challenge and HTTP
   solo.ts                  Phase 1 scaffold: one solo game per connection (fate decided in Phase 3)
   challenge.ts             PartyKit adapter for Challenge: createChallengeServer({timeScale?, revealMs?}); onRequest -> seal/check, sockets -> session
   challenge/               token.ts (AES-GCM, result-style open), seal.ts (validation + HTTP), session.ts (pure solver run)
@@ -65,7 +69,7 @@ party/                     SERVER. Never imported by src/ (ESLint-enforced)
   room/                    room.ts (pure rules), names.ts, http.ts (201/409/400 + CORS), apply.ts, types.ts
   games/                   types.ts (GameDefinition contract), index.ts (registry: woordle), woordle/{game,match rules,ranking,score,board,...}
   data/                    answers.json (1,374), guesses.json (6,483), LICENSES.md
-  e2e/                     test-only server entries: fixed answers, round limits shrunk to 1% (injected, no test branch in room code)
+  e2e/                     test-only server entries: fixed answers, injected round limits (2 min 1.2 s, 3 min 20 s, 5 min 3 s), 5 s grace, raised per-IP limits (no test branch in production code)
 src/                       FRONTEND (browser)
   app/                     /, /woordle, /woordle/solo, /woordle/room/[code], /woordle/challenge/new, /woordle/challenge/[token], layout, globals.css
   components/{woordle,room,challenge}/   UI
@@ -76,8 +80,8 @@ src/                       FRONTEND (browser)
   lib/challenge/           store.ts, challenge-client.ts, seal-client.ts, link.ts (isPlausibleToken), form.ts (pure form rules)
 tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables
 scripts/                   build-wordlists.mjs, check-bundle.mjs, answers-exclude.txt
-tests/                     Vitest (34 files, 540 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
-e2e/                       Playwright (5 specs, 38 tests), shared player helpers in e2e/helpers.ts
+tests/                     Vitest (38 files, 604 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
+e2e/                       Playwright (7 specs, 58 tests: + resilience, mobile), shared player helpers in e2e/helpers.ts
 partykit.json              production parties: main, challenge, solo
 partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer, challenge -> scaled limits; vars.CHALLENGE_KEY is a fixed test-only key
 ```
@@ -110,8 +114,8 @@ Server is authoritative. The client sends intents and renders what the server re
 
 | Direction | Room (party `main`) | Solo (party `solo`) |
 | --- | --- | --- |
-| Client -> server | `join {playerId, name}`, `settings {roundSeconds: 120/180/300}`, `start`, `guess {word}`, `playAgain` | `guess {word}`, `newGame` |
-| Server -> client | `lobby {players[{id,name,isHost,connected}], roundSeconds, youId, phase}`, `error {code}`, `roundStart {round, totalRounds, startedAt, endsAt, players}`, `guessResult {word, colours, solvedMs}`, `guessRejected`, `opponentProgress {id, rows, solvedMs}`, `roundEnd {round, answer, winnerId, results, nextAt}`, `matchEnd {ranking}` | `soloStart`, `guessResult`, `guessRejected {reason}`, `soloEnd {won, answer}` |
+| Client -> server | `join {playerId, name}`, `settings {roundSeconds: 120/180/300}`, `start`, `guess {word}`, `playAgain`, `leave` | `guess {word}`, `newGame` |
+| Server -> client | `lobby {players[{id,name,isHost,connected}], roundSeconds, youId, phase}`, `error {code}`, `roundStart {round, totalRounds, startedAt, endsAt, players}`, `guessResult {word, colours, solvedMs}`, `guessRejected`, `opponentProgress {id, rows, solvedMs}`, `roundEnd {round, answer, winnerId, results, nextAt}`, `matchEnd {ranking}`, `matchSnapshot` (to a returning player only) | `soloStart`, `guessResult`, `guessRejected {reason}`, `soloEnd {won, answer}` |
 
 Challenge messages are listed in Spec 2.5 (`ChallengeClientMessage`, `ChallengeServerMessage`); challenge errors are `invalid-token` and `unavailable`.
 
@@ -121,14 +125,16 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 
 ## 6. Room rules (all in `party/room/room.ts`, pure, no PartyKit imports)
 
-- First seat is host; host passes to the lowest join order when the host leaves.
+- First seat is host. Host is explicit state: it stays with a host in grace and passes, when the host's seat is removed, to the earliest-joined **connected** seat (the earliest held seat if nobody is connected).
 - 5 seats max; 6th gets `room-full`. 10 open sockets max per room. Frames over 512 chars and anything before a valid `join` are dropped.
 - Names: trimmed, whitespace collapsed, control chars stripped, 20 chars, needs a letter/digit/emoji; duplicates get " 2", " 3" (case-insensitive).
 - Same `playerId` joining again takes the seat (newest wins); old connection gets `replaced`.
 - Phase `lobby | match`. `start` (host, lobby, 1+ players) enters `match`; it lasts through the results screen until the host's `playAgain` (only valid once the game finished). New players in `match` get `match-in-progress`. If everyone leaves mid-match the room resets to the lobby and cancels its timers.
 - Anything the room does not own (`join`, `settings`, `start`, `playAgain`) is handed to the game's `parseAction`; `null` means dropped.
 - `settings`: host only, lobby only, 120/180/300 only.
-- **Interim until Phase 5:** a dropped player is removed immediately (no 60 s hold), so a refresh mid-match puts that player out of it (they stay on the roster as "Left" and in the ranking, with unsolved rounds at the full limit).
+- **Reconnect grace:** a dropped seated player keeps the seat for 60 s (`graceMs`), in the lobby or mid-match. The seat shows `connected:false` ("Reconnecting…"), still counts toward the cap, gets no messages, and the game is not told, so a round waits for them. The same `playerId` back in time gets `lobby` then `matchSnapshot`. On expiry the seat is removed and the game gets `onPlayerLeave`; mid-match the player is then new (`match-in-progress`). `leave` removes the seat at once. The room resets to the lobby only when the last **seat** is removed.
+- **Rate limits:** 30 frames per 10 s per socket, counted before parsing (adapters pass a binary frame as `""` via `frameText`, so it counts too); 2 game actions per second per seat (survives a takeover), answered with the game's `rateLimitedReply`. Over the limit is a drop or a rejection, never a disconnect. `party/rate-limit.ts` sweeps once per window (on a timer when given `setTimer`) and caps keys at 10,000 with a shared overflow bucket; the per-IP key is `ipKey()` in `seal.ts` (IPv6 by /64).
+- **Client sends only on an open socket:** `RoomConnection.send` drops a frame while disconnected, because partysocket would flush a queued frame before our re-`join`. The keyboard, Start, round length and Play again are disabled while `reconnecting`; Leave still leaves locally and the seat frees at the grace.
 - Ranking: rounds won, then total time (unsolved = full limit), ties share a rank, dense numbering (1, 1, 2).
 - The room "exists" only after `create()` (the POST). Sockets to an uncreated room get `room-not-found`.
 
@@ -145,12 +151,12 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 ```bash
 npm run dev            # Next :3000 + PartyKit :1999
 npm run lint           # eslint .
-npm test               # Vitest, 540 tests, ~2 s
+npm test               # Vitest, 604 tests, ~3 s
 npm run test:e2e       # Playwright; starts its own servers, STOP npm run dev FIRST
 npm run build && npm run check:bundle   # word data must not reach .next/static
 ```
 
-- e2e runs `partykit dev -c partykit.e2e.json`: solo answers are always `crane`; rooms play `crane, slate, robot, moist, light` with round limits at 1% (a 2 min round is 1.2 s, 5 min is 3 s) and a 1.5 s pause between rounds. Players are separate browser contexts (separate `sessionStorage`). Durations come from `party/e2e/answers.ts`, injected through `createWoordleGame`.
+- e2e runs `partykit dev -c partykit.e2e.json` and a **production build** of the app (`next build && next start`), with reduced motion. Solo answers are always `crane`; rooms play `crane, slate, robot, moist, light`; a 2 min round lasts 1.2 s, 5 min 3 s, and 3 min (the default) 20 s so a page can be refreshed mid-round; the pause between rounds is 1.5 s; reconnect grace is 5 s. Players are separate browser contexts (separate `sessionStorage`). Durations come from `party/e2e/answers.ts`, injected through `createWoordleGame`.
 - `check:bundle` samples the first/middle/last 3-word runs of each list; it catches a shipped list, not a stray fragment.
 - Before declaring work done: lint + `npm test`; add `test:e2e` for room/protocol/Challenge changes; add `build && check:bundle` when touching `src/` imports or word data.
 
@@ -176,7 +182,10 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | Pure session + injected clock | `challenge/session.ts` takes `{clock, send}`; tests use `tests/helpers/fake-clock.ts`. Do not call `setTimeout` in it |
 | `CHALLENGE_KEY` handling | Read only from `room.env` in `party/`; missing or not 32 bytes fails closed. e2e gets a fixed test key from `partykit.e2e.json` `vars` |
 | Challenge links and word-list rebuilds | Regenerating the lists can remove a sealed word; `begin` then answers `invalid-token` (link expired) |
-| e2e is intermittently flaky on a cold dev server | `next dev` compiles routes on demand, so the first run after source edits can time out a few tests (seen in rooms, match and challenge specs, never the same one twice). A rerun passes. Clicks right after `goto` can land before hydration: Challenge specs use `pressStart` (retries an idempotent click). A production-build e2e target would remove the cause; not done |
+| e2e guesses must be paced | The server allows 2 guesses/s per player; `submitPaced` in `e2e/helpers.ts` spaces Enter presses 600 ms apart (measured between submits, not typing starts) |
+| e2e drops a socket on demand | `page.routeWebSocket` with `connectToServer()`, then close both sides and refuse reconnects (`resilience.spec.ts`, Leave while reconnecting). Grace constants come from `party/e2e/answers.ts` |
+| e2e is a production build | `npm run test:e2e` runs `next build` first (about 30 s); a changed `src/` file needs no dev server. Leave `npm run dev` stopped |
+| Animations are visual only | `data-state` and colour classes change at once; e2e runs with `reducedMotion: "reduce"`. Keyboard colours wait `ROW_REVEAL_MS` for the flip unless motion is reduced |
 | Mutation-check a new guard | Plant the bug (a late guess accepted, an answer in `roundStart`) and confirm the test fails, then restore |
 
 ## 10. Do not read (token cost, chars / 4 ≈ tokens)

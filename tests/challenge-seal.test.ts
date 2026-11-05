@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { handleChallengeRequest, validateSeal } from "../party/challenge/seal";
+import { createRequestLimiter, handleChallengeRequest, ipKey, validateSeal } from "../party/challenge/seal";
 import { openChallenge } from "../party/challenge/token";
 import { TEST_KEY, WORDS } from "./helpers/challenge";
 
@@ -146,4 +146,99 @@ describe("check endpoint", () => {
   test("works without a key (it only reads the public guess list)", async () => {
     expect((await post("check", { word: "crane" }, { env: {} })).status).toBe(200);
   });
+});
+
+describe("per-IP request limits", () => {
+  const call = (route: "seal" | "check", ip: string | null, limiter: ReturnType<typeof createRequestLimiter>, body: unknown) =>
+    handleChallengeRequest(
+      { method: "POST", headers: { get: (h) => (h === "cf-connecting-ip" ? ip : null) }, text: async () => JSON.stringify(body) },
+      route,
+      env,
+      everyWordValid,
+      limiter,
+    );
+
+  test("check allows 60 per 10 s per IP, then 429 with CORS, Retry-After and no address in the body", async () => {
+    let t = 0;
+    const limiter = createRequestLimiter(() => t);
+    for (let i = 0; i < 60; i++) expect((await call("check", "203.0.113.7", limiter, { word: "crane" })).status).toBe(200);
+    const blocked = await call("check", "203.0.113.7", limiter, { word: "crane" });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    expect(blocked.headers.get("Retry-After")).toBe("10");
+    const text = await blocked.text();
+    expect(JSON.parse(text)).toEqual({ error: "rate-limited" });
+    expect(text).not.toContain("203.0.113.7");
+    t = 10_000;
+    expect((await call("check", "203.0.113.7", limiter, { word: "crane" })).status).toBe(200);
+  });
+
+  test("seal allows 20 per minute per IP, and its 429 says retry within 60 s", async () => {
+    const limiter = createRequestLimiter(() => 0);
+    const body = { words: WORDS, limitSec: 60 };
+    for (let i = 0; i < 20; i++) expect((await call("seal", "198.51.100.1", limiter, body)).status).toBe(200);
+    const blocked = await call("seal", "198.51.100.1", limiter, body);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("60");
+  });
+
+  test("IPv6 callers in one /64 share a bucket; another /64 has its own", async () => {
+    const limiter = createRequestLimiter(() => 0);
+    const body = { words: WORDS, limitSec: 60 };
+    for (let i = 0; i < 20; i++) await call("seal", `2001:db8:1:2::${(i + 1).toString(16)}`, limiter, body);
+    expect((await call("seal", "2001:db8:1:2:ffff:ffff:ffff:ffff", limiter, body)).status).toBe(429);
+    expect((await call("seal", "2001:db8:1:3::1", limiter, body)).status).toBe(200);
+  });
+
+  test("addresses are independent, and seal and check have separate budgets", async () => {
+    const limiter = createRequestLimiter(() => 0);
+    for (let i = 0; i < 20; i++) await call("seal", "198.51.100.1", limiter, { words: WORDS, limitSec: 60 });
+    expect((await call("seal", "198.51.100.2", limiter, { words: WORDS, limitSec: 60 })).status).toBe(200);
+    expect((await call("check", "198.51.100.1", limiter, { word: "crane" })).status).toBe(200);
+  });
+
+  test("without the Cloudflare header every caller shares one bucket", async () => {
+    const limiter = createRequestLimiter(() => 0);
+    for (let i = 0; i < 20; i++) await call("seal", null, limiter, { words: WORDS, limitSec: 60 });
+    expect((await call("seal", null, limiter, { words: WORDS, limitSec: 60 })).status).toBe(429);
+  });
+
+  test("the preflight is never limited", async () => {
+    const limiter = createRequestLimiter(() => 0);
+    for (let i = 0; i < 70; i++) await call("check", "203.0.113.9", limiter, { word: "crane" });
+    const res = await handleChallengeRequest({ method: "OPTIONS", text: async () => "" }, "check", env, everyWordValid, limiter);
+    expect(res.status).toBe(204);
+  });
+});
+
+describe("ipKey", () => {
+  test.each([
+    ["203.0.113.7", "203.0.113.7"],
+    [" 203.0.113.7 ", "203.0.113.7"],
+    ["::ffff:203.0.113.7", "203.0.113.7"],
+    ["::FFFF:203.0.113.7", "203.0.113.7"],
+    ["2001:db8::1", "2001:db8:0:0::/64"],
+    ["2001:db8:0:0:1:2:3:4", "2001:db8:0:0::/64"],
+    ["2001:0db8:0000:0000:abcd:0000:0000:0001", "2001:db8:0:0::/64"],
+    ["2001:DB8:aa:bb::", "2001:db8:aa:bb::/64"],
+    ["2001:db8:aa:bb:cc::1", "2001:db8:aa:bb::/64"],
+    ["::1", "0:0:0:0::/64"],
+    ["::", "0:0:0:0::/64"],
+    ["fe80::1:2:3:4", "fe80:0:0:0::/64"],
+    ["1:2:3:4:5:6:7::", "1:2:3:4::/64"],
+  ])("%s keys as %s", (raw, key) => {
+    expect(ipKey(raw)).toBe(key);
+  });
+
+  test("a naive split would be wrong: compressed and expanded forms of one /64 match", () => {
+    expect(ipKey("2001:db8::1")).toBe(ipKey("2001:db8:0:0:ffff::9"));
+    expect(ipKey("2001:db8::1")).not.toBe(ipKey("2001:db8:0:1::1"));
+  });
+
+  test.each([null, undefined, "", "junk", "1:2:3:4:5:6:7:8:9", "1::2::3", "12345::1", "fe80::1%eth0", "2001:db8::g"])(
+    "%s shares the unknown bucket",
+    (raw) => {
+      expect(ipKey(raw)).toBe("unknown");
+    },
+  );
 });

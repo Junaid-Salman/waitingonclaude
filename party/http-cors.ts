@@ -11,6 +11,6 @@ export function reply(status: number, body: string | null, extra: Record<string,
   return new Response(body, { status, headers: { ...CORS_HEADERS, ...extra } });
 }
 
-export function replyJson(status: number, body: unknown): Response {
-  return reply(status, JSON.stringify(body), { "Content-Type": "application/json" });
+export function replyJson(status: number, body: unknown, extra: Record<string, string> = {}): Response {
+  return reply(status, JSON.stringify(body), { "Content-Type": "application/json", ...extra });
 }

@@ -9,6 +9,7 @@ import {
 } from "../../shared/protocol";
 import { reply, replyJson } from "../http-cors";
 import { isValidGuess, normalise } from "../games/woordle/words";
+import { createWindowLimiter } from "../rate-limit";
 import { sealChallenge, isChallengeConfigured } from "./token";
 
 // Five short words and a number fit in well under this; anything bigger is hostile.
@@ -57,6 +58,72 @@ export function validateSeal(body: unknown, isWord: WordCheck = isValidGuess): S
   return { ok: true, words: normalised, limitSec: limitSec as number };
 }
 
+export type ChallengeRoute = "seal" | "check";
+
+export interface RequestLimiter {
+  allow(route: ChallengeRoute, key: string): boolean;
+  // Seconds a refused caller should wait at most: the route's window.
+  retryAfter(route: ChallengeRoute): number;
+}
+
+export interface RequestLimits {
+  check: { limit: number; windowMs: number };
+  seal: { limit: number; windowMs: number };
+}
+
+// A creator's form checks up to 5 words per link, so `check` gets more room than `seal`. Both are
+// sized for one office behind a shared address, not for one person (Phase 5.1, Q7).
+export const REQUEST_LIMITS: RequestLimits = {
+  check: { limit: 60, windowMs: 10_000 },
+  seal: { limit: 20, windowMs: 60_000 },
+};
+
+// Per-IP limits held only in this instance's memory, for at most two windows after an address's
+// last request (rate-limit.ts). The address is never logged, stored or sent anywhere; this is the
+// one place the app reads it (Spec 2.9).
+export function createRequestLimiter(
+  now: () => number,
+  limits: RequestLimits = REQUEST_LIMITS,
+  setTimer?: (ms: number, fn: () => void) => unknown,
+): RequestLimiter {
+  const byRoute = {
+    check: createWindowLimiter({ ...limits.check, now, setTimer }),
+    seal: createWindowLimiter({ ...limits.seal, now, setTimer }),
+  };
+  return {
+    allow: (route, key) => byRoute[route].allow(key),
+    retryAfter: (route) => Math.ceil(limits[route].windowMs / 1000),
+  };
+}
+
+// The bucket for an address. One IPv6 subscriber usually holds a whole /64, so keying by the full
+// address would hand one caller unlimited buckets. IPv4, and IPv4 written as IPv6 (::ffff:a.b.c.d),
+// key by the address itself. Anything unparseable shares one bucket: over-limiting, never a leak.
+export function ipKey(raw: string | null | undefined): string {
+  const ip = (raw ?? "").trim().toLowerCase();
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return ip;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  if (mapped) return mapped[1];
+  const groups = expandIpv6(ip);
+  return groups ? `${groups.slice(0, 4).join(":")}::/64` : "unknown";
+}
+
+// Expands "::" so every address has eight groups; null when the text is not plain IPv6 (a zone
+// id, an embedded IPv4 tail other than the mapped form, or junk).
+function expandIpv6(ip: string): string[] | null {
+  if (!/^[0-9a-f:]+$/.test(ip) || ip.length > 39) return null;
+  const halves = ip.split("::");
+  if (halves.length > 2) return null;
+  const part = (s: string) => (s === "" ? [] : s.split(":"));
+  const head = part(halves[0]);
+  const tail = halves.length === 2 ? part(halves[1]) : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return null;
+  const groups = [...head, ...Array(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (!groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.map((g) => g.replace(/^0+(?=.)/, ""));
+}
+
 export interface ChallengeRequest {
   method: string;
   headers?: { get(name: string): string | null };
@@ -84,10 +151,15 @@ export async function handleChallengeRequest(
   roomId: string,
   env: { CHALLENGE_KEY?: unknown },
   isWord: WordCheck = isValidGuess,
+  limiter?: RequestLimiter,
 ): Promise<Response> {
   if (roomId !== "seal" && roomId !== "check") return reply(404, "not found");
   if (req.method === "OPTIONS") return reply(204, null);
   if (req.method !== "POST") return reply(405, "method not allowed", { Allow: "POST, OPTIONS" });
+  // Cloudflare sets this header; without it (local dev) every caller shares one bucket.
+  if (limiter && !limiter.allow(roomId, ipKey(req.headers?.get("cf-connecting-ip")))) {
+    return replyJson(429, { error: "rate-limited" } satisfies SealError, { "Retry-After": String(limiter.retryAfter(roomId)) });
+  }
 
   const body = await readJson(req);
 

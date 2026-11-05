@@ -65,7 +65,7 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | --- | --- | --- |
 | Platform shell | `src/app/page.tsx`, `src/app/layout.tsx` | Home page, game list, footer disclaimer |
 | Room client | `src/lib/room/`, `src/components/room/` | PartySocket connection (closed on every server error, because `partysocket` otherwise retries forever), secret player ID and name in `sessionStorage`, room creation with 409 retry, lobby store and UI |
-| Room layer (server) | `party/room/`, `party/main.ts` | Player list, name suffixing, host role and handover, 5-player cap, mid-match join block, reconnect grace, rate limiting, results screen state. Rules are a pure state machine in `room.ts` (no PartyKit imports, portable to Workers); `main.ts` is the thin PartyKit adapter and `http.ts` answers room creation with CORS headers. Phase 2 ships everything except grace, rate limiting and results; a dropped player leaves at once until Phase 5 |
+| Room layer (server) | `party/room/`, `party/main.ts` | Player list, name suffixing, host role and handover, 5-player cap, mid-match join block, reconnect grace, rate limiting, results screen state. Rules are a pure state machine in `room.ts` (no PartyKit imports, portable to Workers); `main.ts` is the thin PartyKit adapter and `http.ts` answers room creation with CORS headers. Shared sliding-window limits live in `party/rate-limit.ts` |
 | Game registry | `party/games/index.ts` | Maps a game ID to its `GameDefinition` |
 | Woordle rules | `party/games/woordle/` | Answer selection, guess validation, scoring, round timing, ranking |
 | Solo party (Phase 1 scaffold) | `party/solo.ts`, `party/games/woordle/solo-session.ts` | One single-player game per connection, before rooms exist. Its fate is decided in Phase 3 |
@@ -118,7 +118,9 @@ export interface GameDefinition<State, Settings, Action> {
   parseAction(input: unknown): Action | null; // validates one untrusted client message
   createState(players: RoomPlayer[], settings: Settings, ctx: GameContext<Action>): State;
   onAction(state: State, sender: Sender, action: Action, ctx: GameContext<Action>): State;
-  onPlayerLeave(state: State, id: PublicId, ctx: GameContext<Action>): State;
+  onPlayerLeave(state: State, id: PublicId, ctx: GameContext<Action>): State;   // seat removed for good
+  onPlayerReturn(state: State, id: PublicId, ctx: GameContext<Action>): State;  // back within the grace
+  rateLimitedReply(action: Action): RoomServerMessage | null;                   // reply to an action sent too fast
   viewFor(state: State, id: PublicId): unknown;
   isFinished(state: State): boolean;
 }
@@ -126,7 +128,9 @@ export interface GameDefinition<State, Settings, Action> {
 
 Games only ever see **public** ids; the room maps them to connections and never passes the secret `playerId` across this boundary. `parseAction` is where a game treats client input as hostile: the room forwards any message it does not own (`join`, `settings`, `start`, `playAgain`) and drops it when `parseAction` returns `null`. Internal actions (a round timer firing) are scheduled through `ctx.schedule` and arrive with sender `SYSTEM`; `parseAction` never produces them, so a client cannot forge one. The room tracks every pending timer and cancels them when a match is abandoned. A game's state is owned by the game: handlers mutate it and return it.
 
-`viewFor` is the fairness boundary: it returns only what that player may see (own letters, opponents' colours, never the answer before round end). In Phase 3 it is implemented and tested but not sent; Phase 5 uses it to restore a board after a refresh. It shares one helper with `opponentProgress`, so the two cannot disagree.
+`viewFor` is the fairness boundary: it returns only what that player may see (own letters, opponents' colours, never the answer before round end). It is the only source of the `matchSnapshot` a returning player receives, and it shares one helper with `opponentProgress`, so the two cannot disagree.
+
+**Seat lifecycle and the contract (Phase 5).** A dropped seated player keeps the seat for the reconnect grace; the game hears nothing during that time, so the player still counts as playing and a round waits for them. `onPlayerLeave` is called only when the seat is removed (grace expired or explicit `leave`). `onPlayerReturn` is called when the same `playerId` comes back during a match: Woordle answers with `matchSnapshot` built from `viewFor`. The room owns rate limits (it counts and decides); `rateLimitedReply` lets the game name the rejection, so Woordle answers a guess sent too fast with `guessRejected {reason: "rate-limited"}`.
 
 ### 2.5 Message Protocol
 
@@ -139,7 +143,8 @@ export type ClientMessage =
   | { type: "settings"; roundSeconds: 120 | 180 | 300 }
   | { type: "start" }
   | { type: "guess"; word: string }
-  | { type: "playAgain" };
+  | { type: "playAgain" }
+  | { type: "leave" }; // frees the seat at once (no grace) and passes host on
 
 export type ServerMessage =
   // `phase` stays "match" from Start until the host sends playAgain (results screen included).
@@ -155,6 +160,14 @@ export type ServerMessage =
   // (or of matchEnd after round 5).
   | { type: "roundEnd"; round: number; answer: string; winnerId: string | null; results: { id: string; solvedMs: number | null; guesses: number }[]; nextAt: number }
   | { type: "matchEnd"; ranking: { id: string; name: string; roundsWon: number; totalMs: number; rank: number }[] }
+  // Only to a player returning to a running match, right after their lobby message. Built from viewFor:
+  // own rows with letters, opponents' colours, and roundEnd/ranking only once revealed.
+  | { type: "matchSnapshot"; serverNow: number; stage: "playing" | "reveal" | "finished"; round: number; totalRounds: number;
+      startedAt: number; endsAt: number; players: { id: string; name: string }[];
+      own: { rows: { word: string; colours: TileColour[] }[]; solvedMs: number | null };
+      opponents: { id: string; rows: TileColour[][]; solvedMs: number | null }[];
+      roundEnd: { answer: string; winnerId: string | null; results: { id: string; solvedMs: number | null; guesses: number }[]; nextAt: number } | null;
+      ranking: { id: string; name: string; roundsWon: number; totalMs: number; rank: number }[] | null }
   | { type: "error"; code: "room-full" | "room-not-found" | "match-in-progress" | "replaced" | "invalid-name" };
 ```
 
@@ -299,7 +312,8 @@ Token size: 72 bytes of JSON plus 12 bytes IV plus 16 bytes tag, measured at 134
 - Names exist only in the browser tab and in the room's memory.
 - Answers and word lists exist only in `party/`. The `src/` tree never imports from `party/data/`.
 - The server stamps every round start and every solve; the client timer is display only.
-- The server caps each player at 2 guesses per second and each connection at 30 messages per 10 seconds.
+- The server caps each player at 2 guesses per second and each connection at 30 messages per 10 seconds (rooms, solo and Challenge sockets). Every frame counts, binary and malformed ones included. Frames over the limit are dropped; a guess over it is answered `rate-limited`. Nobody is disconnected for it. The room client sends nothing while its connection is down: the board and host controls are disabled while "Reconnecting…" shows.
+- The Challenge `seal` and `check` endpoints are limited per IP address (`check` 60 per 10 s, `seal` 20 per minute, sized for an office behind one address), answering 429 with `Retry-After` (the window, in seconds). The address comes from Cloudflare's `cf-connecting-ip` header; IPv6 is counted per /64 (one subscriber's usual allocation) and IPv4-mapped IPv6 as IPv4. It is held only in that instance's memory, for at most two windows after the address's last request (a sweep runs once per window), and is never logged, stored, returned or sent anywhere. Each limiter holds at most 10,000 addresses; when full, new addresses share one overflow bucket with the same limit. It is the only place the app reads an IP.
 - Seat lifecycle: a seat exists from join until its player leaves or its reconnect grace expires. Seated players who drop keep their seat for 60 seconds and rejoin with the same `playerId`, in the lobby or mid-match. No new seat opens while a match runs.
 
 ---
@@ -531,13 +545,15 @@ npm run party:deploy
 | Seated player disconnects | Seat held 60 seconds and counts toward the 5-player cap; on expiry the seat is removed and the player is treated as new (blocked until the match ends). A removed player stays in the final ranking, with every unsolved round counted as full time |
 | Seated player in grace when everyone else is done | Round does not end early; it waits for the grace to expire or the time limit |
 | Host leaves | Host passes to the earliest-joined connected player when the host's grace expires, or at once on an explicit leave |
-| Player leaves mid-match (Phase 3, until Phase 5 adds the 60 s hold) | Removed at once. They stay on the roster as "Left" and in the final ranking, and every round they did not solve counts as the full time limit. The round ends early if everyone remaining is done |
-| Everyone leaves mid-match | The room returns to the lobby phase and cancels its timers, so a stale match cannot block the code |
+| Player presses Leave | Seat removed at once (no grace); host passes on if needed; the tab forgets the room, so a refresh asks for a name instead of rejoining. Mid-match they show as "Left" and stay in the ranking with unsolved rounds at the full limit |
+| Seated player drops mid-match | Others see "Reconnecting…" on that player; the round waits for them. Back within 60 s: the same seat, board and score (`matchSnapshot`). Otherwise "Left", as above, and the round ends early if everyone remaining is done |
+| Everyone leaves mid-match | While any seat is still held the match keeps running, so a lone player's refresh restores it. When the last seat is removed the room returns to the lobby phase and cancels its timers, so a stale match cannot block the code |
+| Start while a lobby seat is held | Allowed: the held player is in the match roster and in grace; they play if they return, otherwise they are removed at expiry and counted as Left |
 | Results screen | The room stays in the `match` phase until the host sends `playAgain`; new players are still blocked. Any player who becomes host can send it |
 | Same link in two tabs | `sessionStorage` is per tab, so each tab is a separate player; both count toward the cap |
 | Same `playerId` joins again (a refresh whose old socket has not closed yet, or Chrome's "Duplicate tab", which copies `sessionStorage`) | The newest connection takes the seat and keeps its name, host flag and join order. The old connection receives `error: replaced` and is closed, and the page offers "Use this tab". A late close from the old connection is ignored |
 | Unusable name | Names are trimmed, whitespace-collapsed, stripped of control and invisible characters, and capped at 20 characters. A name needs a letter, digit or emoji, otherwise `invalid-name`. Duplicate matching ignores case and skips suffixes already taken |
-| Many sockets, few players | A room accepts at most 10 open sockets (extras get `room-full`); frames over 512 characters and anything before a valid `join` are dropped. Full rate limiting is Phase 5 |
+| Many sockets, few players | A room accepts at most 10 open sockets (extras get `room-full`); frames over 512 characters and anything before a valid `join` are dropped, and each socket may send 30 frames per 10 s (junk included) |
 | Everyone leaves | Durable Object evicts; room and names are gone; the code can be reused |
 
 ### 5.3 Timing
@@ -549,7 +565,8 @@ npm run party:deploy
 | Guess during the 5 s pause | Reject with `round-over`, so a delayed guess can never land in the next round |
 | Two solves in the same millisecond | Earlier message processed wins; Durable Objects process messages serially |
 | Exact tie on rounds won and total time | Shared rank; dense numbering, so the next rank is one higher (1, 1, 2) |
-| `setTimeout` lost on eviction | Only happens when the room is empty, so no live player is affected |
+| `setTimeout` lost on eviction | Only happens when the room has no live sockets. With seats in grace the room keeps a grace timer pending; whether Cloudflare keeps such an object alive is checked in the Phase 6 smoke test. If it is evicted, a returning player gets `room-not-found` |
+| Refresh or drop and come back | Same `playerId` within 60 s: `lobby` then `matchSnapshot` (own letters, colours, opponents' colours, timer from `serverNow`), at the playing, reveal or results stage |
 
 ### 5.4 Security and Hosting
 

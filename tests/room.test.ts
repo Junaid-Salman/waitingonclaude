@@ -23,6 +23,8 @@ function setup(options: Partial<Parameters<typeof createRoom>[0]> = {}) {
 }
 
 const start = (room: Room, connId: string) => room.message(connId, JSON.stringify({ type: "start" }));
+// An explicit leave frees the seat at once; a dropped socket is held (tests/room-grace.test.ts).
+const leave = (room: Room, connId: string) => room.message(connId, JSON.stringify({ type: "leave" }));
 
 // Connects a socket and joins it; returns every effect produced.
 function seat(room: Room, connId: string, playerId: string, name: string): Effect[] {
@@ -86,7 +88,7 @@ describe("joining", () => {
   test("a seat opens again after someone leaves", () => {
     const room = setup();
     for (let i = 1; i <= 5; i++) seat(room, `c${i}`, pid(i), `P${i}`);
-    room.disconnect("c3");
+    leave(room, "c3");
     expect(names(seat(room, "c6", pid(6), "P6"), "c6")).toEqual(["P1", "P2", "P4", "P5", "P6"]);
   });
 
@@ -176,7 +178,7 @@ describe("leaving and host", () => {
     seat(room, "c1", pid(1), "Ali");
     seat(room, "c2", pid(2), "Bo");
     seat(room, "c3", pid(3), "Cy");
-    const effects = room.disconnect("c1");
+    const effects = leave(room, "c1");
     expect(lastLobby(effects, "c2")?.players.map((p) => [p.name, p.isHost])).toEqual([
       ["Bo", true],
       ["Cy", false],
@@ -187,7 +189,7 @@ describe("leaving and host", () => {
     const room = setup();
     seat(room, "c1", pid(1), "Ali");
     seat(room, "c2", pid(2), "Bo");
-    expect(lastLobby(room.disconnect("c2"), "c1")?.players).toEqual([
+    expect(lastLobby(leave(room, "c2"), "c1")?.players).toEqual([
       { id: "pub1", name: "Ali", isHost: true, connected: true },
     ]);
   });
@@ -195,7 +197,7 @@ describe("leaving and host", () => {
   test("the last player leaving produces nothing to send", () => {
     const room = setup();
     seat(room, "c1", pid(1), "Ali");
-    expect(room.disconnect("c1")).toEqual([]);
+    expect(leave(room, "c1")).toEqual([]);
   });
 
   test("a socket that never joined can close without effect", () => {

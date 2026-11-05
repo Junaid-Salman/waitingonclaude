@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ROUND_SECONDS_OPTIONS, type LobbyPlayer, type RoundSeconds } from "../../../shared/protocol";
+import { LeaveButton } from "./LeaveButton";
 import {
   buttonClasses,
   focusClasses,
@@ -19,11 +20,14 @@ interface Props {
   roundSeconds: number;
   onRoundSeconds(seconds: RoundSeconds): void;
   onStart(): void;
+  onLeave(): void;
+  // Host controls cannot reach the server while the connection is down.
+  offline?: boolean;
 }
 
 const minutes = (seconds: number) => `${seconds / 60} min`;
 
-export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onStart }: Props) {
+export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onStart, onLeave, offline = false }: Props) {
   const [copied, setCopied] = useState(false);
   const isHost = players.some((p) => p.isHost && p.id === youId);
   const link = typeof window === "undefined" ? "" : `${window.location.origin}/woordle/room/${code}`;
@@ -66,6 +70,7 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onSt
           {players.map((player) => (
             <li key={player.id} data-testid="player" className="regular-text-md flex items-center gap-2 rounded border-2 border-tile-border px-3 py-2">
               <span className="min-w-0 flex-1 truncate">{player.name}</span>
+              {!player.connected && <span className="regular-text-xs text-muted">Reconnecting…</span>}
               {player.id === youId && <span className={`semibold-text-xs rounded px-2 py-0.5 ${youBadgeClasses}`}>You</span>}
               {player.isHost && <span className={`semibold-text-xs rounded px-2 py-0.5 ${hostBadgeClasses}`}>Host</span>}
             </li>
@@ -82,8 +87,9 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onSt
                 key={seconds}
                 type="button"
                 aria-pressed={roundSeconds === seconds}
+                disabled={offline}
                 onClick={() => onRoundSeconds(seconds)}
-                className={`semibold-text-sm rounded px-3 py-2 ${roundSeconds === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
+                className={`semibold-text-sm rounded px-3 py-2 disabled:opacity-60 ${roundSeconds === seconds ? selectedOptionClasses : secondaryButtonClasses} ${focusClasses}`}
               >
                 {minutes(seconds)}
               </button>
@@ -97,12 +103,14 @@ export function Lobby({ code, players, youId, roundSeconds, onRoundSeconds, onSt
       </section>
 
       {isHost ? (
-        <button type="button" onClick={onStart} className={`semibold-text-md self-start rounded px-4 py-2 ${buttonClasses} ${focusClasses}`}>
+        <button type="button" disabled={offline} onClick={onStart} className={`semibold-text-md self-start rounded px-4 py-2 disabled:opacity-60 ${buttonClasses} ${focusClasses}`}>
           Start match
         </button>
       ) : (
         <p className="regular-text-sm text-muted">Waiting for the host to start the match.</p>
       )}
+
+      <LeaveButton onLeave={onLeave} />
     </div>
   );
 }

@@ -1,13 +1,16 @@
 import type * as Party from "partykit/server";
-import { handleChallengeRequest } from "./challenge/seal";
+import { createRequestLimiter, handleChallengeRequest, REQUEST_LIMITS, type RequestLimits } from "./challenge/seal";
 import { createChallengeSession, parseChallengeFrame, type ChallengeSession } from "./challenge/session";
 import { isChallengeConfigured, openChallenge } from "./challenge/token";
+import { createWindowLimiter, LIMITS } from "./rate-limit";
 import { realClock } from "./room/room";
 
 export interface ChallengeServerOptions {
   // Test-only knobs, injected by party/e2e/challenge-test.ts. Production uses the defaults.
   timeScale?: number;
   revealMs?: number;
+  // Every local caller shares one address, so the e2e server raises these.
+  requestLimits?: RequestLimits;
 }
 
 // Thin PartyKit adapter. The same party serves the seal/check HTTP routes (fixed room ids) and one
@@ -16,11 +19,13 @@ export function createChallengeServer(opts: ChallengeServerOptions = {}) {
   return class ChallengeServer implements Party.Server {
     // Keyed by connection id so two sockets in one room never share a run.
     private runs = new Map<string, ChallengeSession>();
+    private frames = createWindowLimiter({ ...LIMITS.frames, now: realClock.now });
+    private requests = createRequestLimiter(realClock.now, opts.requestLimits ?? REQUEST_LIMITS, realClock.setTimer);
 
     constructor(readonly room: Party.Room) {}
 
     onRequest(req: Party.Request) {
-      return handleChallengeRequest(req, this.room.id, this.room.env);
+      return handleChallengeRequest(req, this.room.id, this.room.env, undefined, this.requests);
     }
 
     onConnect(conn: Party.Connection) {
@@ -34,6 +39,8 @@ export function createChallengeServer(opts: ChallengeServerOptions = {}) {
     }
 
     async onMessage(message: string | ArrayBuffer | ArrayBufferView, sender: Party.Connection) {
+      // Counted before parsing, so junk frames use up the budget too.
+      if (!this.frames.allow(sender.id)) return;
       if (typeof message !== "string") return;
       const session = this.runs.get(sender.id);
       const frame = parseChallengeFrame(message);
@@ -59,6 +66,7 @@ export function createChallengeServer(opts: ChallengeServerOptions = {}) {
     onClose(conn: Party.Connection) {
       this.runs.get(conn.id)?.close();
       this.runs.delete(conn.id);
+      this.frames.forget(conn.id);
     }
   };
 }

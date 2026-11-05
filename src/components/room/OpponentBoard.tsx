@@ -8,22 +8,26 @@ interface Props {
   rows: TileColour[][];
   solvedMs: number | null;
   left: boolean;
+  // Dropped, but the seat is held for the reconnect grace.
+  away: boolean;
 }
 
 // Colours only. An opponent's letters are never sent to the browser, so none can be shown.
-export function OpponentBoard({ id, name, rows, solvedMs, left }: Props) {
+export function OpponentBoard({ id, name, rows, solvedMs, left, away }: Props) {
   const status = solvedMs !== null ? `solved in ${formatDuration(solvedMs)}` : `${rows.length} of ${MAX_GUESSES} guesses`;
   return (
     <li
       data-testid="opponent"
       data-id={id}
-      aria-label={`${name}: ${status}${left ? ", left the match" : ""}`}
+      aria-label={`${name}: ${status}${left ? ", left the match" : away ? ", reconnecting" : ""}`}
       className={`flex flex-col gap-2 rounded border-2 border-tile-border p-2 ${left ? "opacity-60" : ""}`}
     >
       <div className="flex flex-col items-start gap-1">
         <span className="medium-text-sm max-w-full truncate">{name}</span>
         {left ? (
           <span className="regular-text-xs text-muted">Left</span>
+        ) : away ? (
+          <span className="regular-text-xs text-muted">Reconnecting…</span>
         ) : solvedMs !== null ? (
           <span className={`semibold-text-xs rounded px-2 py-0.5 ${solvedBadgeClasses}`}>Solved {formatDuration(solvedMs)}</span>
         ) : null}

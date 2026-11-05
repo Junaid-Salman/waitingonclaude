@@ -75,7 +75,8 @@ export function ChallengeForm() {
     setChecking(index);
     const valid = await checkWord(word);
     inFlight.current.delete(word);
-    setChecking(null);
+    // Clear only our own marker: another field may have started its check since.
+    setChecking((current) => (current === index ? null : current));
     // null means the network failed; the word stays unchecked and "Create link" still works,
     // because the seal call re-validates every word.
     if (valid !== null) setVerdicts((prev) => ({ ...prev, [word]: valid ? "ok" : "not-a-word" }));
@@ -96,6 +97,10 @@ export function ChallengeForm() {
     }
     if (outcome.kind === "unavailable") {
       setError("Could not create the link. Check your connection and try again.");
+      return;
+    }
+    if (outcome.kind === "rate-limited") {
+      setError("Too many links in a short time. Try again in a minute.");
       return;
     }
     setServerProblems(Object.fromEntries(outcome.words.map((w) => [w.index, w.reason])));
@@ -157,7 +162,7 @@ export function ChallengeForm() {
               <p
                 id={`word-${index}-problem`}
                 data-testid={`word-${index}-problem`}
-                role={bad ? "alert" : undefined}
+                aria-live="polite"
                 className={`regular-text-sm min-h-5 ${invalidTextClasses}`}
               >
                 {problem ? PROBLEM_TEXT[problem] : ""}

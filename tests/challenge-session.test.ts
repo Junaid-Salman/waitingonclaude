@@ -48,9 +48,12 @@ describe("challenge session", () => {
   });
 
   test("six wrong guesses end the round unsolved", () => {
-    const { session, of } = setup();
+    const { session, of, clock } = setup();
     session.start(payload());
-    for (let i = 0; i < 6; i++) session.guess(WRONG);
+    for (let i = 0; i < 6; i++) {
+      session.guess(WRONG);
+      clock.advance(500); // stay under 2 guesses per second
+    }
     expect(of("roundEnd")[0]).toMatchObject({ answer: "crane", solvedMs: null, guesses: 6 });
   });
 
@@ -96,11 +99,15 @@ describe("challenge session", () => {
   });
 
   test("a non-word is rejected and consumes no guess", () => {
-    const { session, of, sent } = setup();
+    const { session, of, sent, clock } = setup();
     session.start(payload());
     session.guess("zzzzz");
     expect(sent.at(-1)).toEqual({ type: "guessRejected", reason: "not-a-word" });
-    for (let i = 0; i < 5; i++) session.guess(WRONG);
+    for (let i = 0; i < 5; i++) {
+      clock.advance(500); // stay under 2 guesses per second
+      session.guess(WRONG);
+    }
+    expect(of("guessResult")).toHaveLength(5);
     expect(of("roundEnd")).toHaveLength(0); // still 5 of 6 used
   });
 
@@ -229,6 +236,18 @@ describe("challenge session", () => {
     clock.advance(60_000);
     const end = sent.find((m) => m.type === "roundEnd") as { nextAt: number };
     expect(end.nextAt - clock.now()).toBe(5000);
+  });
+});
+
+describe("challenge rate limit", () => {
+  test("a third guess inside one second is rate-limited and consumes nothing", () => {
+    const { session, sent, of } = setup();
+    session.start(payload());
+    session.guess(WRONG);
+    session.guess(WRONG);
+    session.guess(WRONG);
+    expect(sent.at(-1)).toEqual({ type: "guessRejected", reason: "rate-limited" });
+    expect(of("guessResult")).toHaveLength(2);
   });
 });
 
