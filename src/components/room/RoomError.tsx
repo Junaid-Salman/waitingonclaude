@@ -3,6 +3,7 @@
 import type { RoomErrorCode } from "../../../shared/protocol";
 import { buttonClasses, cardClasses, focusClasses } from "@/lib/colors";
 import { CreateRoomButton } from "./CreateRoomButton";
+import type { CreateRoomGame } from "./useCreateRoom";
 
 const MESSAGES: Record<Exclude<RoomErrorCode, "invalid-name">, { title: string; detail: string }> = {
   "room-not-found": { title: "Room not found", detail: "This room doesn't exist or has ended. Rooms close when everyone leaves." },
@@ -11,7 +12,8 @@ const MESSAGES: Record<Exclude<RoomErrorCode, "invalid-name">, { title: string; 
   replaced: { title: "Opened in another tab", detail: "This player joined from another tab or window, so this one was disconnected." },
 };
 
-export function RoomError({ code, onRetry }: { code: Exclude<RoomErrorCode, "invalid-name">; onRetry(): void }) {
+// `game` decides which kind of room the Create room button makes.
+export function RoomError({ code, onRetry, game = "woordle" }: { code: Exclude<RoomErrorCode, "invalid-name">; onRetry(): void; game?: CreateRoomGame }) {
   const message = MESSAGES[code];
   const heads = code === "replaced";
   return (
@@ -27,7 +29,7 @@ export function RoomError({ code, onRetry }: { code: Exclude<RoomErrorCode, "inv
             {code === "replaced" ? "Use this tab" : "Try again"}
           </button>
         )}
-        {code === "room-not-found" && <CreateRoomButton wide />}
+        {code === "room-not-found" && <CreateRoomButton wide game={game} />}
       </div>
     </div>
   );

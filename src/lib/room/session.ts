@@ -10,14 +10,19 @@ export interface KeyValueStorage {
 
 const KEYS = { playerId: "woc:playerId", name: "woc:name", room: "woc:room" } as const;
 
+// Which game's room a tab last joined. Rooms live in separate namespaces per game, so a Type Race
+// ABCD must not be mistaken for a Woordle ABCD. Woordle keeps its original key.
+export type RoomGame = "woordle" | "type-race";
+const ROOM_KEYS: Record<RoomGame, string> = { woordle: KEYS.room, "type-race": "woc:tr:room" };
+
 export interface Session {
   playerId(): string;
   name(): string | null;
   // The room this tab last joined, so a refresh re-joins without asking for the name again.
-  joinedRoom(): string | null;
-  remember(room: string, name: string): void;
+  joinedRoom(game?: RoomGame): string | null;
+  remember(room: string, name: string, game?: RoomGame): void;
   // After Leave: a refresh must not walk straight back into the room. The name is kept.
-  forgetRoom(): void;
+  forgetRoom(game?: RoomGame): void;
 }
 
 export function createSession(storage: KeyValueStorage | null, newId: () => string = () => crypto.randomUUID()): Session {
@@ -50,15 +55,15 @@ export function createSession(storage: KeyValueStorage | null, newId: () => stri
       return id;
     },
     name: () => read(KEYS.name),
-    joinedRoom: () => read(KEYS.room),
-    remember(room, name) {
-      write(KEYS.room, room);
+    joinedRoom: (game = "woordle") => read(ROOM_KEYS[game]),
+    remember(room, name, game = "woordle") {
+      write(ROOM_KEYS[game], room);
       write(KEYS.name, name);
     },
-    forgetRoom() {
-      memory.delete(KEYS.room);
+    forgetRoom(game = "woordle") {
+      memory.delete(ROOM_KEYS[game]);
       try {
-        storage?.removeItem(KEYS.room);
+        storage?.removeItem(ROOM_KEYS[game]);
       } catch {
         // memory copy above is gone, which is enough for this tab
       }

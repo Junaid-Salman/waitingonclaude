@@ -84,3 +84,21 @@ describe("session", () => {
     expect(session.joinedRoom()).toBeNull();
   });
 });
+
+describe("per-game room keys", () => {
+  test("a Type Race room is not mistaken for a Woordle room with the same code", () => {
+    const store = new Map<string, string>();
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v), removeItem: (k: string) => void store.delete(k) };
+    const session = createSession(storage);
+    session.remember("ABCD", "Ali", "type-race");
+    expect(session.joinedRoom("type-race")).toBe("ABCD");
+    expect(session.joinedRoom()).toBeNull();
+    expect(store.get("woc:tr:room")).toBe("ABCD");
+    expect(store.has("woc:room")).toBe(false);
+    session.remember("WXYZ", "Ali");
+    expect(store.get("woc:room")).toBe("WXYZ"); // Woordle keeps its original key
+    session.forgetRoom("type-race");
+    expect(session.joinedRoom("type-race")).toBeNull();
+    expect(session.joinedRoom()).toBe("WXYZ");
+  });
+});

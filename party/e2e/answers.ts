@@ -24,3 +24,14 @@ export const E2E_SHORT_PASSAGES = [
   { id: "e-001", length: "short", text: "The quick brown fox, said the clerk, jumps over lazy dogs; it then rests by the quiet river for an hour." },
   { id: "e-002", length: "short", text: "Seven small boats left the harbour at dawn, and by the time the fog lifted they had all found the bay." },
 ] as const;
+
+// Type Race rooms: the passages of a match in race order (about 40 characters, so a test types one in
+// a few seconds), and the race limits. A short race lasts 20 s so a page can be refreshed mid-race;
+// medium and long last 3 s so a timeout is quick to reach. The countdown stays 3 s and the pause
+// between races is E2E_REVEAL_MS.
+export const E2E_RACE_PASSAGES = [
+  { id: "r-001", length: "short", text: "The red fox ran far away from the barn." },
+  { id: "r-002", length: "short", text: "Seven boats left the harbour at dawn." },
+  { id: "r-003", length: "short", text: "A quiet river runs past the old mill." },
+] as const;
+export const E2E_RACE_LIMIT_MS = { short: 20_000, medium: 3000, long: 3000 } as const;

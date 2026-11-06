@@ -45,3 +45,11 @@ describe("createRoom", () => {
     expect(fetchFn.mock.calls[0][0]).toBe("https://waitingonclaude.someone.workers.dev/parties/main/AAAA");
   });
 });
+
+describe("createRoom party", () => {
+  test("a party option posts to that party (Type Race rooms use /parties/type-race/)", async () => {
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 201 }));
+    await createRoom({ host: "localhost:1999", fetchFn, rng: () => 0, party: "type-race" });
+    expect(fetchFn).toHaveBeenCalledWith("http://localhost:1999/parties/type-race/AAAA", { method: "POST" });
+  });
+});

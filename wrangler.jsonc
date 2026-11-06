@@ -11,13 +11,15 @@
       { "name": "Main", "class_name": "Main" },
       { "name": "Challenge", "class_name": "Challenge" },
       { "name": "Solo", "class_name": "Solo" },
-      { "name": "TypeRaceSolo", "class_name": "TypeRaceSolo" }
+      { "name": "TypeRaceSolo", "class_name": "TypeRaceSolo" },
+      { "name": "TypeRace", "class_name": "TypeRace" }
     ]
   },
   // Workers Free allows only SQLite-backed Durable Objects. Nothing is stored; rooms live in memory.
   // Add a new entry (new tag) whenever a class is added, renamed or removed.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["Main", "Challenge", "Solo"] },
-    { "tag": "v2", "new_sqlite_classes": ["TypeRaceSolo"] }
+    { "tag": "v2", "new_sqlite_classes": ["TypeRaceSolo"] },
+    { "tag": "v3", "new_sqlite_classes": ["TypeRace"] }
   ]
 }

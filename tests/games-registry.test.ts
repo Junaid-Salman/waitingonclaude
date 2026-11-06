@@ -2,8 +2,9 @@ import { describe, expect, test } from "vitest";
 import { games, getGame } from "../party/games";
 
 describe("game registry", () => {
-  test("registers Woordle", () => {
-    expect(Object.keys(games)).toEqual(["woordle"]);
+  test("registers Woordle and Type Race", () => {
+    expect(Object.keys(games)).toEqual(["woordle", "type-race"]);
+    expect(getGame("type-race")?.id).toBe("type-race");
     expect(getGame("woordle")?.id).toBe("woordle");
   });
 

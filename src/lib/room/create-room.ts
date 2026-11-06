@@ -5,19 +5,20 @@ const MAX_ATTEMPTS = 5;
 
 export class CreateRoomError extends Error {}
 
-// POST /parties/main/<CODE>: 201 means the code is ours, 409 means a live room holds it, so retry
+// POST /parties/<party>/<CODE> (party `main` for Woordle, `type-race` for Type Race): 201 means the code is ours, 409 means a live room holds it, so retry
 // with a new code.
 export async function createRoom(
-  options: { host?: string; fetchFn?: typeof fetch; rng?: Rng } = {},
+  options: { host?: string; fetchFn?: typeof fetch; rng?: Rng; party?: string } = {},
 ): Promise<string> {
   const base = partyHttpUrl(options.host ?? partyHost());
   const fetchFn = options.fetchFn ?? fetch;
+  const party = options.party ?? "main";
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     const code = generateRoomCode(options.rng);
     let res: Response;
     try {
-      res = await fetchFn(`${base}/parties/main/${code}`, { method: "POST" });
+      res = await fetchFn(`${base}/parties/${party}/${code}`, { method: "POST" });
     } catch {
       throw new CreateRoomError("Can't reach the game server. Check your connection and try again.");
     }

@@ -116,6 +116,10 @@ export interface GameDefinition<State, Settings, Action> {
   id: string;
   defaultSettings: Settings;
   validateSettings(input: unknown): Settings; // throws on invalid input
+  // Optional hooks (Phase 8.2.1): the room stores the settings but does not know their shape.
+  settingsUpdate?(current: Settings, msg: Record<string, unknown>): Settings | null; // host's `settings` message; null drops it
+  lobbyFields?(settings: Settings): Record<string, unknown>;                         // spread into every `lobby` frame
+  actionLimit?: { limit: number; windowMs: number };                                 // per-seat action limit; default 2 per second
   parseAction(input: unknown): Action | null; // validates one untrusted client message
   createState(players: RoomPlayer[], settings: Settings, ctx: GameContext<Action>): State;
   onAction(state: State, sender: Sender, action: Action, ctx: GameContext<Action>): State;
@@ -130,6 +134,8 @@ export interface GameDefinition<State, Settings, Action> {
 Games only ever see **public** ids; the room maps them to connections and never passes the secret `playerId` across this boundary. `parseAction` is where a game treats client input as hostile: the room forwards any message it does not own (`join`, `settings`, `start`, `playAgain`) and drops it when `parseAction` returns `null`. Internal actions (a round timer firing) are scheduled through `ctx.schedule` and arrive with sender `SYSTEM`; `parseAction` never produces them, so a client cannot forge one. The room tracks every pending timer and cancels them when a match is abandoned. A game's state is owned by the game: handlers mutate it and return it.
 
 `viewFor` is the fairness boundary: it returns only what that player may see (own letters, opponents' colours, never the answer before round end). It is the only source of the `matchSnapshot` a returning player receives, and it shares one helper with `opponentProgress`, so the two cannot disagree.
+
+**Settings and limits (Phase 8.2.1).** The room checks that a `settings` message comes from the host in the lobby, then asks the game: `settingsUpdate` returns the new settings or `null` (drop). A game without it has no settings. `lobbyFields` supplies the extra fields of the `lobby` frame (Woordle: `roundSeconds`, placed where it always was, so Woordle's frames are byte-identical; `tests/room-golden-frames.test.ts` records them). `actionLimit` replaces the default 2 game actions per second per seat; the 30 frames per 10 s per socket limit is the room's and never changes.
 
 **Seat lifecycle and the contract (Phase 5).** A dropped seated player keeps the seat for the reconnect grace; the game hears nothing during that time, so the player still counts as playing and a round waits for them. `onPlayerLeave` is called only when the seat is removed (grace expired or explicit `leave`). `onPlayerReturn` is called when the same `playerId` comes back during a match: Woordle answers with `matchSnapshot` built from `viewFor`. The room owns rate limits (it counts and decides); `rateLimitedReply` lets the game name the rejection, so Woordle answers a guess sent too fast with `guessRejected {reason: "rate-limited"}`.
 

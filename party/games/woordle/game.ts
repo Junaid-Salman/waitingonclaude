@@ -241,6 +241,13 @@ export function createWoordleGame(options: WoordleOptions = {}): GameDefinition<
     id: "woordle",
     defaultSettings: { roundSeconds: DEFAULT_ROUND_SECONDS },
 
+    // The room checks host and phase; Woordle's one setting is the round length.
+    settingsUpdate(_current, msg) {
+      return isSeconds(msg.roundSeconds) ? { roundSeconds: msg.roundSeconds } : null;
+    },
+
+    lobbyFields: ({ roundSeconds }) => ({ roundSeconds }),
+
     validateSettings(input) {
       const roundSeconds = (input as { roundSeconds?: unknown } | null)?.roundSeconds;
       if (!isSeconds(roundSeconds)) throw new Error("invalid roundSeconds");

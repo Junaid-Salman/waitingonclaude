@@ -1,12 +1,9 @@
 import {
-  DEFAULT_ROUND_SECONDS,
   MAX_PLAYERS,
   RECONNECT_GRACE_MS,
-  ROUND_SECONDS_OPTIONS,
   type RoomErrorCode,
   type RoomPhase,
   type RoomServerMessage,
-  type RoundSeconds,
 } from "../../shared/protocol";
 import { SYSTEM, type GameContext, type GameDefinition, type Sender } from "../games/types";
 import { createWindowLimiter, LIMITS } from "../rate-limit";
@@ -84,13 +81,14 @@ export function createRoom(options: RoomOptions): Room {
   // Frames per socket (counted before parsing, so junk counts) and game actions per seat (so a
   // takeover from a second tab does not reset it).
   const frameLimiter = createWindowLimiter({ ...LIMITS.frames, now: () => clock.now() });
-  const actionLimiter = createWindowLimiter({ ...LIMITS.guesses, now: () => clock.now() });
+  const actionLimiter = createWindowLimiter({ ...(game.actionLimit ?? LIMITS.guesses), now: () => clock.now() });
 
   let created = false;
   // "match" lasts from Start until the host sends Play again, results screen included.
   let phase: RoomPhase = "lobby";
   let matchState: unknown = null;
-  let roundSeconds: RoundSeconds = DEFAULT_ROUND_SECONDS;
+  // Owned by the game: the room only stores it and hands it back (settingsUpdate, lobbyFields).
+  let settings: unknown = game.defaultSettings;
   let nextJoinSeq = 0;
   // Explicit, not derived from join order: a host in their reconnect grace stays host.
   let hostPlayerId: PlayerId | null = null;
@@ -125,7 +123,10 @@ export function createRoom(options: RoomOptions): Room {
       isHost: s === host,
       connected: s.connected,
     }));
-    return present().map((s) => send(s.connId, { type: "lobby", players, roundSeconds, youId: s.publicId, phase }));
+    const fields = game.lobbyFields?.(settings) ?? {};
+    // The game's fields sit where Woordle's roundSeconds always did, so the frame is unchanged. The
+    // cast is because the spread is typed by the game, not the room.
+    return present().map((s) => send(s.connId, { type: "lobby", players, ...fields, youId: s.publicId, phase } as RoomServerMessage));
   }
 
   function cancelTimers() {
@@ -300,24 +301,30 @@ export function createRoom(options: RoomOptions): Room {
 
       if (msg.type === "settings") {
         if (!isHost || phase !== "lobby") return [];
-        if (!ROUND_SECONDS_OPTIONS.includes(msg.roundSeconds as RoundSeconds)) return [];
-        roundSeconds = msg.roundSeconds as RoundSeconds;
+        let next: unknown = null;
+        try {
+          next = game.settingsUpdate?.(settings, msg) ?? null;
+        } catch {
+          next = null;
+        }
+        if (next === null) return [];
+        settings = next;
         return broadcastLobby();
       }
 
       if (msg.type === "start") {
         if (!isHost || phase !== "lobby") return [];
         const players = ordered().map((s) => ({ id: s.publicId, name: s.name, isHost: s === seat, connected: true }));
-        let settings: unknown;
+        let validated: unknown;
         try {
-          settings = game.validateSettings({ roundSeconds });
+          validated = game.validateSettings(settings);
         } catch {
           return [];
         }
         phase = "match";
         // The lobby message flips every client to the match view before the game's first message.
         const out = broadcastLobby();
-        matchState = game.createState(players, settings, makeContext(out));
+        matchState = game.createState(players, validated, makeContext(out));
         return out;
       }
 

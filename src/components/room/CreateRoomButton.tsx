@@ -1,10 +1,10 @@
 "use client";
 
 import { buttonClasses, focusClasses } from "@/lib/colors";
-import { useCreateRoom } from "./useCreateRoom";
+import { useCreateRoom, type CreateRoomGame } from "./useCreateRoom";
 
-export function CreateRoomButton({ label = "Create room", small = false, wide = false }: { label?: string; small?: boolean; wide?: boolean }) {
-  const { create, busy, error } = useCreateRoom();
+export function CreateRoomButton({ label = "Create room", small = false, wide = false, game = "woordle" }: { label?: string; small?: boolean; wide?: boolean; game?: CreateRoomGame }) {
+  const { create, busy, error } = useCreateRoom(game);
   return (
     <div className={`relative flex flex-col gap-2 ${wide ? "w-full sm:w-auto" : "items-center"}`}>
       <button

@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { SiteHeader } from "@/components/SiteHeader";
-import { buttonClasses, cardClasses, focusClasses } from "@/lib/colors";
+import { CreateRoomButton } from "@/components/room/CreateRoomButton";
+import { cardClasses, focusClasses, secondaryButtonClasses } from "@/lib/colors";
 
 export const metadata: Metadata = { title: "Type Race · WaitingOnClaude" };
 
-// Reachable by URL only until the home page links it (Phase 8.4). Create room and Challenge arrive
-// in 8.2 and 8.3.
+// Reachable by URL only until the home page links it (Phase 8.4). Challenge arrives in 8.3.
 export default function TypeRacePage() {
   return (
     <>
@@ -14,10 +14,13 @@ export default function TypeRacePage() {
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col items-center gap-7 px-4 pt-4 pb-8 sm:pt-10">
         <div className="flex flex-col items-center gap-4 text-center">
           <h1 className="extrabold-display-lg sm:extrabold-display-3xl font-display leading-[1.05] tracking-tight">Type Race</h1>
-          <p className="regular-text-lg text-muted">Type a short passage exactly, as fast as you can.</p>
-          <Link href="/type-race/practice" className={`bold-text-md rounded-xl px-5 py-3 text-center ${buttonClasses} ${focusClasses}`}>
-            Practice
-          </Link>
+          <p className="regular-text-lg text-muted">Race up to 4 friends over 3, 5 or 7 passages, or practise on your own. Type each one exactly, as fast as you can.</p>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+            <CreateRoomButton game="type-race" wide />
+            <Link href="/type-race/practice" className={`bold-text-md rounded-xl px-5 py-3 text-center ${secondaryButtonClasses} ${focusClasses}`}>
+              Practice
+            </Link>
+          </div>
         </div>
         <section aria-labelledby="how-to-play" className={`flex w-full flex-col gap-3 p-5 sm:p-7 ${cardClasses}`}>
           <h2 id="how-to-play" className="extrabold-display-xs font-display">

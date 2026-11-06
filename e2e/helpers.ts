@@ -20,6 +20,22 @@ export async function createRoom(page: Page, name: string): Promise<string> {
   return code;
 }
 
+// Type Race rooms: the Create room button lives on /type-race (one per page).
+export async function createTypeRaceRoom(page: Page, name: string): Promise<string> {
+  await page.goto("/type-race");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await page.waitForURL(/\/type-race\/room\/[A-Z]{4}$/);
+  const code = page.url().split("/").pop()!;
+  await enterName(page, name);
+  await expect(page.getByRole("heading", { name: `Room ${code}` })).toBeVisible();
+  return code;
+}
+
+export async function joinTypeRaceRoom(page: Page, code: string, name: string) {
+  await page.goto(`/type-race/room/${code}`);
+  await enterName(page, name);
+}
+
 export async function joinRoom(page: Page, code: string, name: string) {
   await page.goto(`/woordle/room/${code}`);
   await enterName(page, name);

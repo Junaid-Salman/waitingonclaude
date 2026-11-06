@@ -7,7 +7,7 @@
 //  - Backspace works inside the current word only;
 //  - a keystroke is correct only if it matches and no error comes before it in the word; `errors`
 //    counts every incorrect keystroke, even after it is fixed.
-import { splitWords } from "../../../shared/type-race/passage";
+import { charsThrough, splitWords } from "../../../shared/type-race/passage";
 
 // Characters accepted past the first error ("5 chars after the first wrong one", spec 4).
 export const ERROR_BUFFER = 5;
@@ -43,6 +43,14 @@ export function createEngine(text: string): EngineState {
     lockedChars: 0,
     finished: words.length === 0,
   };
+}
+
+// Resumes a run after a refresh from the server's counts: `words` completed, an empty current word,
+// the keystroke totals as the server last accepted them (it only knows them at word locks).
+export function restoreEngine(text: string, words: number, keystrokes: number, errors: number): EngineState {
+  const base = createEngine(text);
+  const wordIndex = Math.max(0, Math.min(Math.floor(words), base.words.length));
+  return { ...base, wordIndex, keystrokes, errors, lockedChars: charsThrough(base.words, wordIndex), finished: wordIndex >= base.words.length };
 }
 
 export const currentWord = (state: EngineState): string => state.words[state.wordIndex] ?? "";
