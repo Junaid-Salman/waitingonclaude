@@ -1,4 +1,4 @@
-// PartyKit adds no CORS headers, so a browser's cross-origin POST would be blocked without these.
+// PartyServer adds no CORS headers, so a browser's cross-origin POST would be blocked without these.
 // There are no cookies or credentials, so "*" exposes nothing a direct request could not do.
 export const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",

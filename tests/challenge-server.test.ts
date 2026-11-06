@@ -1,18 +1,18 @@
 import { describe, expect, test } from "vitest";
-import type * as Party from "partykit/server";
+import { asConnection, fakeCtx } from "./helpers/party-server";
 import { createChallengeServer } from "../party/challenge";
 import { handleChallengeRequest } from "../party/challenge/seal";
 import { sealChallenge } from "../party/challenge/token";
 import { TEST_KEY, flipBit, payload } from "./helpers/challenge";
 
-// A fake PartyKit room and connection: enough to drive the adapter without a runtime.
+// A fake Durable Object state and connection: enough to drive the adapter without a runtime.
 function setup(env: Record<string, unknown>, roomId = "session-1") {
   const Server = createChallengeServer({ revealMs: 10 });
-  const server = new Server({ id: roomId, env } as unknown as Party.Room);
+  const server = new Server(fakeCtx(roomId), env);
   const sent: { type: string; code?: string }[] = [];
-  const conn = { id: "c1", send: (m: string) => sent.push(JSON.parse(m)) } as unknown as Party.Connection;
+  const conn = asConnection({ id: "c1", send: (m: string) => sent.push(JSON.parse(m)) });
   server.onConnect(conn);
-  const send = (frame: unknown) => server.onMessage(typeof frame === "string" ? frame : JSON.stringify(frame), conn);
+  const send = (frame: unknown) => server.onMessage(conn, typeof frame === "string" ? frame : JSON.stringify(frame));
   return { server, conn, sent, send };
 }
 
@@ -60,7 +60,7 @@ describe("challenge server adapter", () => {
     await send({ type: "guess", word: "crane" });
     await send("not json");
     await send({ type: "begin", token: "x".repeat(600) });
-    await server.onMessage(new ArrayBuffer(8), conn);
+    await server.onMessage(conn, new ArrayBuffer(8));
     expect(sent).toEqual([]);
   });
 
@@ -84,10 +84,10 @@ describe("challenge server adapter", () => {
   test("two connections never share a run", async () => {
     const { server, sent, send } = setup({ CHALLENGE_KEY: TEST_KEY });
     const other: typeof sent = [];
-    const conn2 = { id: "c2", send: (m: string) => other.push(JSON.parse(m)) } as unknown as Party.Connection;
+    const conn2 = asConnection({ id: "c2", send: (m: string) => other.push(JSON.parse(m)) });
     server.onConnect(conn2);
     await send({ type: "begin", token: await sealChallenge(payload(), TEST_KEY) });
-    await server.onMessage(JSON.stringify({ type: "guess", word: "crane" }), conn2);
+    await server.onMessage(conn2, JSON.stringify({ type: "guess", word: "crane" }));
     expect(other).toEqual([]);
     expect(sent.length).toBeGreaterThan(0);
   });
@@ -97,10 +97,10 @@ describe("challenge server adapter", () => {
     const res = await server.onRequest({
       method: "POST",
       text: async () => JSON.stringify({ words: ["crane", "slate", "robot", "moist", "light"], limitSec: 60 }),
-    } as unknown as Party.Request);
+    } as unknown as Request);
     expect(res.status).toBe(200);
     const noKey = setup({}, "seal");
-    const res2 = await noKey.server.onRequest({ method: "POST", text: async () => "{}" } as unknown as Party.Request);
+    const res2 = await noKey.server.onRequest({ method: "POST", text: async () => "{}" } as unknown as Request);
     expect(res2.status).toBe(500);
   });
 });

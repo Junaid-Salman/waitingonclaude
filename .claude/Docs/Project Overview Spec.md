@@ -28,11 +28,11 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | # | Milestone | Outcome |
 | --- | --- | --- |
 | 1 | Woordle core | Grid, keyboard, word lists, tested scoring function, solo play |
-| 2 | Platform shell and rooms | Home page, shared PartyKit room layer, create/join by link, live player list |
+| 2 | Platform shell and rooms | Home page, shared room layer, create/join by link, live player list |
 | 3 | Time Race | Host start, 5 synced rounds, server timing, round winners, final ranking |
 | 4 | Challenge | Word and time-limit setup, encrypted link, 5 timed rounds, solver summary |
 | 5 | Polish | Animations, mobile layout, host handover, reconnect, rate limiting |
-| 6 | Launch | Vercel + PartyKit deploy, Playwright tests for both modes, share with friends |
+| 6 | Launch | Vercel + Cloudflare Workers deploy, Playwright tests for both modes, share with friends |
 | 7 | Next game | Second game on the same room layer; post-MVP, outside this release |
 
 ---
@@ -47,7 +47,8 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 │  (Zustand,   │                      │  /, /woordle, /woordle/... │
 │  PartySocket)│                      └────────────────────────────┘
 │              │  WebSocket + HTTPS   ┌────────────────────────────┐
-│              │ ◀──────────────────▶ │ PartyKit (Durable Objects) │
+│              │ ◀──────────────────▶ │ Cloudflare Worker +        │
+│              │                      │ PartyServer (Durable Obj.) │
 └──────────────┘                      │  party "main": live rooms  │
                                       │  party "challenge": solves │
                                       │  word lists, CHALLENGE_KEY │
@@ -55,9 +56,9 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 ```
 
 - Vercel serves static UI only. It holds no secrets and no word lists.
-- PartyKit runs one in-memory Durable Object per room. The object dies when the last connection closes, which deletes the room and every name in it.
+- A Cloudflare Worker on the owner's Workers Free account runs PartyServer: one in-memory Durable Object per room. The object dies when the last connection closes, which deletes the room and every name in it.
 - No database, no auth, no analytics or error tracking of any kind.
-- Backup host: if PartyKit managed hosting changes terms or shuts down, the same room code deploys to a personal Cloudflare Workers Free account. The Supabase + Upstash option from the source idea is dropped because it cannot run server-side round timers.
+- Host history: the original primary host, PartyKit managed hosting, shut down on 23 Oct 2026, and so did cloud-prem `partykit deploy`. The planned backup, the owner's Cloudflare Workers Free account, became the only host (Phase 7.7, PartyServer port). There is no backup host now. Room, game and Challenge logic use no platform API, so only the thin adapters in `party/*.ts` would change for another host. The Supabase + Upstash option from the source idea is dropped because it cannot run server-side round timers.
 
 ### 2.2 Core Modules
 
@@ -83,12 +84,12 @@ WaitingOnClaude turns the dead minutes spent waiting on Claude or another AI age
 | Styling | Tailwind CSS 4 | Grid, keyboard, responsive layout. The JS config `tailwind.config.ts` is loaded through `@config` in `src/app/globals.css`; Tailwind 4 detects source files itself, so there is no `content` list |
 | Animation | Framer Motion | Tile flip, shake, reveal |
 | Client state | Zustand | Board, current guess, keyboard colours |
-| Real-time | PartyKit (`partykit`, `partysocket`) | One server instance per room on Cloudflare Durable Objects |
+| Real-time | PartyServer on Cloudflare Workers (`partyserver`, `wrangler`, `partysocket` client) | One Durable Object per room; hibernation off, rooms live in memory |
 | Crypto | Web Crypto AES-GCM (256-bit) | Challenge link tokens |
 | Unit tests | Vitest | Scoring, ranking, token round-trip |
 | E2E tests | Playwright | Two-player Time Race, full Challenge flow |
-| Hosting | Vercel Hobby, PartyKit free managed tier | $0 at hobby scale |
-| Backup hosting | Cloudflare Workers Free (own account) | Same room code, $0; requests fail rather than bill past 100,000 per day |
+| Hosting | Vercel Hobby; Cloudflare Workers Free (own account) for the real-time server | $0. Workers Free fails rather than bills: 100,000 Durable Object requests and 13,000 GB-s of duration per day (about 28 object-hours at 128 MB), reset at 00:00 UTC |
+| Backup hosting | None since PartyKit managed shut down (23 Oct 2026) | See §2.1 |
 
 ### 2.4 Game Plugin Contract
 
@@ -230,7 +231,7 @@ export function scoreGuess(guess: string, answer: string): TileColour[] {
 
 ### 2.7 Challenge Token
 
-The creator's 5 words and time limit are sealed into the link with AES-GCM using `CHALLENGE_KEY`, a secret that exists only in the PartyKit environment. The token carries a version field so a key rotation fails cleanly.
+The creator's 5 words and time limit are sealed into the link with AES-GCM using `CHALLENGE_KEY`, a secret that exists only in the Worker's environment. The token carries a version field so a key rotation fails cleanly.
 
 ```ts
 // party/challenge/token.ts
@@ -327,7 +328,7 @@ Token size: 72 bytes of JSON plus 12 bytes IV plus 16 bytes tag, measured at 134
 - [ ] Git: `git --version`
 - [ ] GitHub account with an empty repository named `waitingonclaude`
 - [ ] Vercel account on the Hobby plan, linked to GitHub
-- [ ] PartyKit account (sign in with GitHub on first `npx partykit login`)
+- [ ] Cloudflare account on the Workers Free plan (`npx wrangler login`), with a `workers.dev` subdomain
 - [ ] OpenSSL for key generation: `openssl version`
 
 ### 3.2 Project Bootstrap
@@ -342,8 +343,8 @@ cd waitingonclaude
 - [ ] Install runtime and dev dependencies:
 
 ```bash
-npm install framer-motion zustand partysocket
-npm install --save-dev partykit vitest @playwright/test concurrently
+npm install framer-motion zustand partysocket partyserver
+npm install --save-dev wrangler @cloudflare/workers-types vitest @playwright/test concurrently
 npx playwright install --with-deps chromium
 ```
 
@@ -353,34 +354,39 @@ npx playwright install --with-deps chromium
 mkdir -p party/room party/games/woordle party/challenge party/data shared
 ```
 
-- [ ] Create `partykit.json` in the repo root:
+- [ ] Create `wrangler.jsonc` in the repo root. `party/worker.ts` exports the `Main`, `Challenge` and `Solo` classes and routes `/parties/<party>/<room>` with `routePartykitRequest`:
 
-```json
+```jsonc
 {
-  "$schema": "https://www.partykit.io/schema.json",
   "name": "waitingonclaude",
-  "main": "party/main.ts",
-  "parties": {
-    "challenge": "party/challenge.ts",
-    "solo": "party/solo.ts"
-  }
+  "main": "party/worker.ts",
+  "compatibility_date": "2026-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Main", "class_name": "Main" },
+      { "name": "Challenge", "class_name": "Challenge" },
+      { "name": "Solo", "class_name": "Solo" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Main", "Challenge", "Solo"] }]
 }
 ```
 
-`partykit.e2e.json` is a test-only config that maps `solo` to `party/e2e/solo-fixed.ts` (every answer is `crane`). Playwright starts PartyKit with it; `partykit deploy` never reads it.
+`wrangler.e2e.jsonc` is a test-only config whose `main` is `party/e2e/worker.ts` (fixed answers, shrunken durations) with a public test `CHALLENGE_KEY` in `vars`. Playwright starts `wrangler dev` with it; `wrangler deploy` never reads it.
 
 - [ ] Add scripts to `package.json`:
 
 ```json
 {
   "scripts": {
-    "dev": "concurrently -n web,party \"next dev\" \"partykit dev\"",
+    "dev": "concurrently -n web,party \"next dev\" \"wrangler dev --port 1999\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "party:deploy": "partykit deploy"
+    "party:deploy": "wrangler deploy"
   }
 }
 ```
@@ -406,7 +412,7 @@ export default defineConfig([
       "no-restricted-imports": ["error", { patterns: ["**/party/**"] }],
     },
   },
-  globalIgnores([".next/**", "out/**", "build/**", ".partykit/**", "next-env.d.ts"]),
+  globalIgnores([".next/**", "out/**", "build/**", ".wrangler/**", "next-env.d.ts"]),
 ]);
 ```
 
@@ -418,7 +424,7 @@ export default defineConfig([
 openssl rand -base64 32
 ```
 
-- [ ] Create `.env` in the repo root for local PartyKit (git-ignored):
+- [ ] Create `.env` in the repo root for the local Worker (git-ignored; `wrangler dev` reads it):
 
 ```bash
 CHALLENGE_KEY=<paste the base64 key>
@@ -450,20 +456,20 @@ curl -i -X OPTIONS -H "Origin: http://localhost:3000" http://localhost:1999/part
 ```
 
 - [ ] Run unit tests: `npm test`
-- [ ] Run end-to-end tests: `npm run test:e2e`. It starts its own PartyKit and Next.js servers on ports 1999 and 3000 and fails if they are busy, so stop `npm run dev` first.
+- [ ] Run end-to-end tests: `npm run test:e2e`. It starts its own `wrangler dev` and Next.js servers on ports 1999 and 3000 and fails if they are busy, so stop `npm run dev` first.
 - [ ] After `npm run build`, run `npm run check:bundle`. It fails if either word list appears in `.next/static`. It samples the first, middle and last run of three consecutive entries, so it catches a list shipped as data, not an arbitrary three-word fragment.
 
 ### 3.6 Deploy
 
-- [ ] Log in and push the key to PartyKit:
+- [ ] Log in, deploy the Worker, then set the key as a Worker secret (never in `vars`, never `NEXT_PUBLIC_*`):
 
 ```bash
-npx partykit login
-npx partykit env add CHALLENGE_KEY
+npx wrangler login
 npm run party:deploy
+npx wrangler secret put CHALLENGE_KEY
 ```
 
-- [ ] Note the deployed host (format `waitingonclaude.<partykit-username>.partykit.dev`).
+- [ ] Note the deployed host (format `waitingonclaude.<workers-subdomain>.workers.dev`).
 - [ ] Import the GitHub repo in Vercel and set `NEXT_PUBLIC_PARTYKIT_HOST` to that host for Production and Preview.
 - [ ] Set the Vercel project name to `waitingonclaude` to claim `waitingonclaude.vercel.app`; if taken, use `waitingonclaude-game`.
 - [ ] Open the production URL in two browsers and play one full Time Race and one Challenge.
@@ -513,7 +519,7 @@ npm run party:deploy
 ### 4.6 Release
 
 1. `npm run lint && npm test && npm run test:e2e`
-2. `npm run party:deploy`
+2. `npm run party:deploy` (`wrangler deploy`)
 3. Push to `main`; Vercel deploys the frontend.
 4. Smoke test: one 2-player Time Race round and one Challenge link on production.
 
@@ -565,7 +571,7 @@ npm run party:deploy
 | Guess during the 5 s pause | Reject with `round-over`, so a delayed guess can never land in the next round |
 | Two solves in the same millisecond | Earlier message processed wins; Durable Objects process messages serially |
 | Exact tie on rounds won and total time | Shared rank; dense numbering, so the next rank is one higher (1, 1, 2) |
-| `setTimeout` lost on eviction | Only happens when the room has no live sockets. With seats in grace the room keeps a grace timer pending; whether Cloudflare keeps such an object alive is checked in the Phase 6 smoke test. If it is evicted, a returning player gets `room-not-found` |
+| `setTimeout` lost on eviction | Only happens when the room has no live sockets. With seats in grace the room keeps a grace timer pending; whether Cloudflare keeps such an object alive is checked in the Phase 7.4 smoke test. If it is evicted, a returning player gets `room-not-found` |
 | Refresh or drop and come back | Same `playerId` within 60 s: `lobby` then `matchSnapshot` (own letters, colours, opponents' colours, timer from `serverNow`), at the playing, reveal or results stage |
 
 ### 5.4 Security and Hosting
@@ -573,7 +579,7 @@ npm run party:deploy
 - Never put the answer in `roundStart`, `opponentProgress`, or any message before `roundEnd`; cover this with a Playwright check that inspects WebSocket frames.
 - Rotating `CHALLENGE_KEY` breaks every existing Challenge link; the solver sees "This challenge link has expired".
 - A Challenge link is replayable. A solver who has seen the answers can replay with perfect results. This is acceptable because results never go back to the creator.
-- PartyKit managed hosting may change terms after Cloudflare's acquisition. If it does, deploy the same room code to a personal Cloudflare Workers Free account.
+- PartyKit managed hosting shut down on 23 Oct 2026; the server now runs on the owner's Cloudflare Workers Free account. Workers Free fails rather than bills past its daily limits, so a busy day can make new rooms fail until 00:00 UTC (known limit at launch; hibernating solo is the first post-launch mitigation). There is no backup host.
 - Vercel Hobby is non-commercial only. Any ads, donations, or paid tiers require a plan change.
 - Trademarks: keep logos and the tile palette visually distinct from Claude and Wordle; the footer reads "Not affiliated with Anthropic or The New York Times." Keep a rename ready in case of a complaint.
 
@@ -581,7 +587,7 @@ npm run party:deploy
 
 | Topic | Decision |
 | --- | --- |
-| Real-time host | PartyKit managed now; backup is a personal Cloudflare Workers Free account (replaces Supabase + Upstash) |
+| Real-time host | PartyServer on the owner's Cloudflare Workers Free account (`workers.dev`, no domain) since Phase 7.7; PartyKit managed shut down 23 Oct 2026. No backup host (Supabase + Upstash stays dropped) |
 | Mid-match joins | Blocked with `match-in-progress`; join once the room returns to the lobby |
 | Reconnect grace | Seated players keep their seat 60 seconds after a drop, in the lobby or mid-match |
 | Early round end | Round ends when every seated player has solved or used 6 guesses |

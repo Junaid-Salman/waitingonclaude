@@ -1,0 +1,19 @@
+// The real-time server: a Cloudflare Worker with one Durable Object class per party.
+// Deploy: `npm run party:deploy`. Secret: `npx wrangler secret put CHALLENGE_KEY` (never in vars).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "waitingonclaude",
+  "main": "party/worker.ts",
+  "compatibility_date": "2026-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Main", "class_name": "Main" },
+      { "name": "Challenge", "class_name": "Challenge" },
+      { "name": "Solo", "class_name": "Solo" }
+    ]
+  },
+  // Workers Free allows only SQLite-backed Durable Objects. Nothing is stored; rooms live in memory.
+  // Add a new entry (new tag) whenever a class is added, renamed or removed.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Main", "Challenge", "Solo"] }]
+}

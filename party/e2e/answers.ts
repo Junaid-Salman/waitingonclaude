@@ -1,4 +1,4 @@
-// Fixed answers for the e2e suite. Used only by partykit.e2e.json, never by partykit.json.
+// Fixed answers for the e2e suite. Used only by wrangler.e2e.jsonc, never by wrangler.jsonc.
 
 // Solo: every game's answer.
 export const E2E_ANSWER = "crane";

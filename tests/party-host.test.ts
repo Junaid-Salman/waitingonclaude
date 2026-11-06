@@ -6,7 +6,7 @@ describe("partyHttpUrl", () => {
     expect(partyHttpUrl(host)).toBe(`http://${host}`);
   });
 
-  test.each(["waitingonclaude.user.partykit.dev", "localhost.evil.com", "notlocalhost:1999"])("%s is https", (host) => {
+  test.each(["waitingonclaude.user.workers.dev", "localhost.evil.com", "notlocalhost:1999"])("%s is https", (host) => {
     expect(partyHttpUrl(host)).toBe(`https://${host}`);
   });
 });

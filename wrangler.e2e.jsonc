@@ -1,0 +1,18 @@
+// e2e only (playwright.config.ts): fixed answers and shrunken durations from party/e2e/.
+// The key below is a public test key (bytes 0..31), not a secret.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "waitingonclaude-e2e",
+  "main": "party/e2e/worker.ts",
+  "compatibility_date": "2026-11-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "Main", "class_name": "Main" },
+      { "name": "Challenge", "class_name": "Challenge" },
+      { "name": "Solo", "class_name": "Solo" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Main", "Challenge", "Solo"] }],
+  "vars": { "CHALLENGE_KEY": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=" }
+}

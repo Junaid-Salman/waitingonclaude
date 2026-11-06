@@ -47,7 +47,8 @@ next-env.d.ts
 Project Files/
 CLAUDE.md
 rules.md
-.partykit/
+.wrangler/
+.dev.vars*
 
 # playwright
 /test-results/

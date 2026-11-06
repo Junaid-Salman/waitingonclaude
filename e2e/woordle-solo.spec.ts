@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { submitPaced } from "./helpers";
 
-// partykit.e2e.json fixes every answer to "crane" (party/e2e/answers.ts).
+// wrangler.e2e.jsonc fixes every answer to "crane" (party/e2e/answers.ts).
 const ANSWER = "crane";
 const WRONG = ["slate", "robot", "pious", "moist", "light", "dwarf"];
 

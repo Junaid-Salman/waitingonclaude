@@ -8,7 +8,7 @@ Rules and workflow live in `CLAUDE.md` (auto-loaded). Behaviour, protocol and de
 
 **WaitingOnClaude**: browser game hub for people waiting on Claude. First game **Woordle** (Wordle clone): solo play, live multiplayer **Time Race** (5 rounds, up to 5 players), and encrypted-link **Challenge**. No accounts, no database, no analytics. Free tiers only.
 
-Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScript strict, Tailwind 4.3 (JS config), Zustand 5, PartyKit 0.0.115 (`partysocket` client), Vitest 5, Playwright 1.64, Node 22.
+Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScript strict, Tailwind 4.3 (JS config), Zustand 5, PartyServer 0.5.10 on Cloudflare Workers + Durable Objects (`wrangler` 4.158, `partysocket` client), Vitest 5, Playwright 1.64, Node 22.
 
 ### Phase status
 
@@ -21,7 +21,7 @@ Stack: Next.js 16.4.3 (App Router, `cacheComponents` on) + React 19.3 + TypeScri
 | 4 Challenge | AES-GCM link, solver session, creator form | Done, committed |
 | 5 Polish | 60 s reconnect grace, Leave, rate limits, animations, mobile | Done, committed (`3a2553d`), awaiting sign-off |
 | 6 UI design | Logo, Figma design (C · Game night), redesigned UI in both themes | Approved 2026-11-06; deferred issues in `.claude/Deffered Issues.md` |
-| 7 Launch | Deploy, playtest | Not started |
+| 7 Launch | Deploy, playtest | In progress: 7.1 done (`a42eb1e`); hosted PartyKit shut down 23 Oct 2026, so 7.7 ports the server to PartyServer on Workers before 7.2 |
 
 Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/Plans/`, one review in `.claude/Reviews/`.
 
@@ -61,32 +61,34 @@ shared/                    code used by BOTH sides. No secrets, no word data
   protocol.ts              all message types + constants (MAX_PLAYERS, ROUND_SECONDS_OPTIONS...)
   room-code.ts             4-letter code alphabet, isRoomCode, generateRoomCode
 party/                     SERVER. Never imported by src/ (ESLint-enforced)
-  main.ts                  PartyKit adapter for rooms: createRoomServer({game?, graceMs?}), real clock, applies timer effects
+  worker.ts                the Cloudflare Worker: exports the Main/Challenge/Solo Durable Object classes + routePartykitRequest
+  workers-env.d.ts         pulls in @cloudflare/workers-types (coexists with the DOM lib via skipLibCheck)
+  main.ts                  PartyServer adapter for rooms: createRoomServer({game?, graceMs?}), real clock, applies timer effects
   rate-limit.ts            sliding-window limiter + the Spec's LIMITS, shared by rooms, solo, Challenge and HTTP
   solo.ts                  Phase 1 scaffold: one solo game per connection (fate decided in Phase 3)
-  challenge.ts             PartyKit adapter for Challenge: createChallengeServer({timeScale?, revealMs?}); onRequest -> seal/check, sockets -> session
+  challenge.ts             PartyServer adapter for Challenge: createChallengeServer({timeScale?, revealMs?}); onRequest -> seal/check, sockets -> session
   challenge/               token.ts (AES-GCM, result-style open), seal.ts (validation + HTTP), session.ts (pure solver run)
   http-cors.ts             CORS headers + reply helpers shared by room and challenge HTTP
   room/                    room.ts (pure rules), names.ts, http.ts (201/409/400 + CORS), apply.ts, types.ts
   games/                   types.ts (GameDefinition contract), index.ts (registry: woordle), woordle/{game,match rules,ranking,score,board,...}
   data/                    answers.json (1,374), guesses.json (6,483), LICENSES.md
-  e2e/                     test-only server entries: fixed answers, injected round limits (2 min 1.2 s, 3 min 20 s, 5 min 3 s), 5 s grace, raised per-IP limits (no test branch in production code)
+  e2e/                     test-only server entries (worker.ts exports the same class names): fixed answers, injected round limits (2 min 1.2 s, 3 min 20 s, 5 min 3 s), 5 s grace, raised per-IP limits (no test branch in production code)
 src/                       FRONTEND (browser)
   app/                     /, /woordle, /woordle/solo, /woordle/room/[code], /woordle/challenge/new, /woordle/challenge/[token], layout, globals.css
   app/icon.svg apple-icon.png favicon.ico opengraph-image.png manifest.ts   icons and metadata (from design/logo/kit)
   components/{woordle,room,challenge,home}/   UI; Logo.tsx + logo-paths.ts (inline SVG logo), SiteHeader.tsx (header outside rooms)
   lib/colors.ts            ONLY place a colour value is written
-  lib/party-host.ts        PartyKit host + http/https choice
+  lib/party-host.ts        real-time host (NEXT_PUBLIC_PARTYKIT_HOST) + http/https choice
   lib/room/                session.ts, create-room.ts, store.ts, room-client.ts, join-code.ts (home "Have a code?" box, pure)
   lib/woordle/             store.ts, solo-client.ts, keyboard.ts
   lib/challenge/           store.ts, challenge-client.ts, seal-client.ts, link.ts (isPlausibleToken), form.ts (pure form rules)
 tailwind.config.ts         fonts, type scale classes, colour tokens -> CSS variables, shadow-piece tokens
 design/                    tokens.json (design source of truth, mirrored by colors.ts), briefs/, logo/{masters,kit,concepts}, figma/ (plugin scripts). logo/work and kit.zip are git-ignored
 scripts/                   build-wordlists.mjs, check-bundle.mjs, answers-exclude.txt
-tests/                     Vitest (44 files, 724 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
-e2e/                       Playwright (8 specs, 63 tests: + resilience, mobile), shared player helpers in e2e/helpers.ts
-partykit.json              production parties: main, challenge, solo
-partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed answers, 1.5 s pause), solo -> fixed answer, challenge -> scaled limits; vars.CHALLENGE_KEY is a fixed test-only key
+tests/                     Vitest (44 files, 732 tests), helpers in tests/helpers (fake clock, test game, challenge tokens)
+e2e/                       Playwright (8 specs, 66 tests, 2 fixme for DI-1/DI-2: + resilience, mobile), shared player helpers in e2e/helpers.ts
+wrangler.jsonc             production Worker `waitingonclaude`: DO bindings Main, Challenge, Solo; SQLite migration v1
+wrangler.e2e.jsonc         test Worker: main -> party/e2e/worker.ts (fixed answers, 1.5 s pause, scaled limits); vars.CHALLENGE_KEY is a fixed test-only key
 ```
 
 ## 4. Runtime architecture
@@ -94,7 +96,7 @@ partykit.e2e.json          test parties: main -> party/e2e/main-test.ts (fixed a
 ```text
 Browser (Zustand, PartySocket) ──HTTPS──▶ Vercel: Next.js static UI (no secrets, no word data)
         │
-        └──WebSocket + POST──▶ PartyKit (Durable Objects, in memory, die with last connection)
+        └──WebSocket + POST──▶ Cloudflare Worker + PartyServer (Durable Objects, in memory, die with last connection)
                                  party "main"      one object per room code: rooms/lobby
                                  party "solo"      one object per random id: a solo game per connection
                                  party "challenge" HTTP seal/check + one run per connection (random room id)
@@ -155,14 +157,14 @@ Error codes: `room-full`, `room-not-found`, `match-in-progress`, `replaced`, `in
 ## 8. Testing and commands
 
 ```bash
-npm run dev            # Next :3000 + PartyKit :1999
+npm run dev            # Next :3000 + wrangler dev :1999 (reads CHALLENGE_KEY from .env)
 npm run lint           # eslint .
-npm test               # Vitest, 724 tests, ~4 s
+npm test               # Vitest, 732 tests, ~4 s
 npm run test:e2e       # Playwright; starts its own servers, STOP npm run dev FIRST
 npm run build && npm run check:bundle   # word data must not reach .next/static
 ```
 
-- e2e runs `partykit dev -c partykit.e2e.json` and a **production build** of the app (`next build && next start`), with reduced motion. Solo answers are always `crane`; rooms play `crane, slate, robot, moist, light`; a 2 min round lasts 1.2 s, 5 min 3 s, and 3 min (the default) 20 s so a page can be refreshed mid-round; the pause between rounds is 1.5 s; reconnect grace is 5 s. Players are separate browser contexts (separate `sessionStorage`). Durations come from `party/e2e/answers.ts`, injected through `createWoordleGame`.
+- e2e runs `wrangler dev -c wrangler.e2e.jsonc --port 1999 --env-file /dev/null` (the empty env file keeps the local `.env` key out) and a **production build** of the app (`next build && next start`), with reduced motion. Solo answers are always `crane`; rooms play `crane, slate, robot, moist, light`; a 2 min round lasts 1.2 s, 5 min 3 s, and 3 min (the default) 20 s so a page can be refreshed mid-round; the pause between rounds is 1.5 s; reconnect grace is 5 s. Players are separate browser contexts (separate `sessionStorage`). Durations come from `party/e2e/answers.ts`, injected through `createWoordleGame`.
 - `check:bundle` samples the first/middle/last 3-word runs of each list; it catches a shipped list, not a stray fragment.
 - Before declaring work done: lint + `npm test`; add `test:e2e` for room/protocol/Challenge changes; add `build && check:bundle` when touching `src/` imports or word data.
 
@@ -171,12 +173,16 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | Gotcha | What to do |
 | --- | --- |
 | `partysocket` reconnects forever after a server-side close | Client must call `socket.close()` on every server `error` |
-| PartyKit adds no CORS headers | `http.ts` answers `OPTIONS` and adds headers itself |
+| PartyServer adds no CORS headers | `http.ts` answers `OPTIONS` and adds headers itself |
 | `next dev` (Strict Mode) opens 2 sockets in the first second | Don't assert an exact socket count in dev; assert it stops growing |
 | `cacheComponents`: dynamic route + `useParams` | `page.tsx` wraps a client component in `<Suspense>`; read `sessionStorage`/`crypto.randomUUID()` only in effects or after the `useSyncExternalStore` client flag |
 | ESLint `react-hooks/set-state-in-effect` | Derive state in render; keep connections in refs |
-| `Party.Request` is Cloudflare's type, not DOM `Request` | `handleRoomRequest` takes `{ method: string }` |
-| Orphaned `workerd` on :1999 / `next-server` on :3000 after a test run | Find the PID with `ss -ltnp` and `kill -9` it. Do not `pkill -f` a pattern that appears in your own command line |
+| PartyServer `onMessage(connection, message)` | Arguments are the reverse of old PartyKit. The adapters type `message` as `WSMessage` |
+| Hibernation must stay off | Rooms and timers live in memory (`realClock`); `static options = { hibernate: true }` would drop them between messages. It is the PartyServer default |
+| Durable Object migrations | Adding, renaming or removing a class in `wrangler.jsonc` needs a new `migrations` entry with a new tag. Workers Free allows only `new_sqlite_classes` |
+| Unit tests that drive an adapter | `partyserver` imports `cloudflare:workers`; `vitest.config.mts` aliases it to `tests/helpers/cloudflare-workers.ts` and inlines `partyserver`. Build servers with `new Server(fakeCtx(name), env)` (`tests/helpers/party-server.ts`) |
+| `wrangler dev` reads `.env` and `.env.local` | Locally that supplies `CHALLENGE_KEY`; e2e passes `--env-file /dev/null` so it uses the config's test key |
+| Orphaned `workerd` on :1999 / `next-server` on :3000 after a test run | Find the PID with `ss -ltnp` and `kill -9` it. Killing `npx wrangler dev` can leave its `workerd` child running, so check again. Do not `pkill -f` a pattern that appears in your own command line |
 | e2e fails instantly with "port already used" | Something still holds 3000/1999 (see above) |
 | CSS `uppercase` doesn't change DOM text | Match case-insensitively in tests |
 | Client ignores keys while a guess is in flight | Playwright helpers wait for the server's row before the next word |
@@ -186,7 +192,7 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | e2e frame recorders see Next's dev hot-reload socket too | Record only sockets whose URL contains `/parties/` before parsing frames as JSON |
 | Assert on data, not on a 300 ms window | Playwright polls at 100 to 1000 ms; keep the e2e pause long enough to observe, or assert from recorded frames |
 | Pure session + injected clock | `challenge/session.ts` takes `{clock, send}`; tests use `tests/helpers/fake-clock.ts`. Do not call `setTimeout` in it |
-| `CHALLENGE_KEY` handling | Read only from `room.env` in `party/`; missing or not 32 bytes fails closed. e2e gets a fixed test key from `partykit.e2e.json` `vars` |
+| `CHALLENGE_KEY` handling | Read only from `this.env` in `party/challenge.ts`; missing or not 32 bytes fails closed. Production: `wrangler secret put`. e2e gets a fixed test key from `wrangler.e2e.jsonc` `vars` |
 | Challenge links and word-list rebuilds | Regenerating the lists can remove a sealed word; `begin` then answers `invalid-token` (link expired) |
 | Board keys vs focused controls | `useKeyboardInput` asks `ownsKey(target, key)`. The page and the on-screen keyboard (`[data-board-keyboard]`) give every key to the board. Text fields (`input`, `textarea`, `select`, `[contenteditable]`) and dialogs keep every key. A focused `a`, `button`, `summary` or `[role=button]` keeps only Enter, so letters still type after a dialog returns focus to Leave room. While any `dialog[open]` exists the board takes nothing (6.1 M1, N1, N2). A new custom control (e.g. a `tabindex` widget) must be added to these selectors |
 | Leaving mid-round asks first | `needsLeaveConfirm` (`src/lib/room/leave.ts`): while a match round is played or revealed, Leave room and the room-header logo open `LeaveConfirm` (native `<dialog>`, never `window.confirm`). Lobby and final results leave at once (owner Q13) |
@@ -211,7 +217,7 @@ npm run build && npm run check:bundle   # word data must not reach .next/static
 | `.claude/Plans/phase-2-rooms.md` | 6,200 | its "Gaps" table |
 | `.claude/Plans/phase-3-time-race.md` | 5,723 | its "Gaps" table |
 | `.claude/Docs/Browser Games Project Idea.md` | 2,500 | read-only, superseded by the Spec |
-| `node_modules/`, `.next/`, `.partykit/`, `test-results/` | - | generated |
+| `node_modules/`, `.next/`, `.wrangler/`, `test-results/` | - | generated |
 
 Search with grep for a heading or symbol instead of opening a large file. Use `offset`/`limit` for anything over ~200 lines.
 

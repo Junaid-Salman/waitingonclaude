@@ -41,7 +41,7 @@ describe("createRoom", () => {
 
   test("uses https for a deployed host", async () => {
     const fetchFn = vi.fn().mockResolvedValue(res(201));
-    await createRoom({ host: "waitingonclaude.someone.partykit.dev", fetchFn, rng: () => 0 });
-    expect(fetchFn.mock.calls[0][0]).toBe("https://waitingonclaude.someone.partykit.dev/parties/main/AAAA");
+    await createRoom({ host: "waitingonclaude.someone.workers.dev", fetchFn, rng: () => 0 });
+    expect(fetchFn.mock.calls[0][0]).toBe("https://waitingonclaude.someone.workers.dev/parties/main/AAAA");
   });
 });

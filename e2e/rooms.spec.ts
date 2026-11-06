@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { E2E_GRACE_MS } from "../party/e2e/answers";
 import { createRoom, enterName, joinRoom, newPlayer, playerNames } from "./helpers";
 
-// Runs against partykit.e2e.json: the production room rules with fixed answers and short rounds.
+// Runs against wrangler.e2e.jsonc: the production room rules with fixed answers and short rounds.
 const PARTY_WS = "ws://localhost:1999/parties/main";
 
 test("create a room: the host lands in the lobby with a code and a Host badge", async ({ page }) => {

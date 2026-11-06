@@ -1,4 +1,4 @@
-import type * as Party from "partykit/server";
+import { Server, type Connection, type WSMessage } from "partyserver";
 import { getGame } from "./games";
 import type { GameDefinition } from "./games/types";
 import { applyEffects } from "./room/apply";
@@ -14,13 +14,14 @@ export interface RoomServerOptions {
   graceMs?: number;
 }
 
-// Thin PartyKit adapter. All rules live in party/room/room.ts.
+// Thin PartyServer adapter (a Durable Object per room). All rules live in party/room/room.ts.
+// Hibernation stays off (the default): rooms and their timers live in memory.
 export function createRoomServer(opts: RoomServerOptions = {}) {
   const found = opts.game ?? getGame("woordle");
   if (!found) throw new Error("woordle game is not registered");
   const game: GameDefinition<unknown, unknown, unknown> = found;
 
-  return class RoomServer implements Party.Server {
+  return class RoomServer extends Server {
     private room = createRoom({
       game,
       clock: realClock,
@@ -29,31 +30,27 @@ export function createRoomServer(opts: RoomServerOptions = {}) {
       emit: (effects) => this.apply(effects),
     });
 
-    constructor(readonly party: Party.Room) {}
-
-    onRequest(req: Party.Request) {
-      return handleRoomRequest(req, this.party.id, this.room);
+    onRequest(req: Request) {
+      return handleRoomRequest(req, this.name, this.room);
     }
 
-    onConnect(conn: Party.Connection) {
+    onConnect(conn: Connection) {
       this.apply(this.room.connect(conn.id));
     }
 
-    onMessage(message: string | ArrayBuffer | ArrayBufferView, sender: Party.Connection) {
+    onMessage(sender: Connection, message: WSMessage) {
       this.apply(this.room.message(sender.id, frameText(message)));
     }
 
-    onClose(conn: Party.Connection) {
+    onClose(conn: Connection) {
       this.apply(this.room.disconnect(conn.id));
     }
 
     private apply(effects: Effect[]) {
-      applyEffects(effects, (id) => this.party.getConnection(id));
+      applyEffects(effects, (id) => this.getConnection(id));
     }
   };
 }
 
 const RoomServer = createRoomServer();
 export default RoomServer;
-
-RoomServer satisfies Party.Worker;

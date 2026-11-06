@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { E2E_GRACE_MS, E2E_REVEAL_MS } from "../party/e2e/answers";
 import { createRoom, joinRoom, newPlayer, typeGuess } from "./helpers";
 
-// partykit.e2e.json: answers crane, slate, robot, moist, light. A 2 min round lasts 1.2 s and a
+// wrangler.e2e.jsonc: answers crane, slate, robot, moist, light. A 2 min round lasts 1.2 s and a
 // 5 min round 3 s (3 min lasts 20 s, for the refresh tests in resilience.spec.ts). The pause between
 // rounds is 1.5 s.
 const ANSWERS = ["crane", "slate", "robot", "moist", "light"];

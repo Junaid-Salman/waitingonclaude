@@ -1,7 +1,7 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { newPlayer } from "./helpers";
 
-// partykit.e2e.json shrinks challenge round limits to 1% (a 5 min round lasts 3 s, a 1 min round
+// wrangler.e2e.jsonc shrinks challenge round limits to 1% (a 5 min round lasts 3 s, a 1 min round
 // 0.6 s) and holds the reveal for 1.5 s. Any word from the guess list works as a challenge word.
 const WORDS = ["crane", "slate", "robot", "moist", "light"];
 

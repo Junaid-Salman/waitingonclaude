@@ -14,7 +14,7 @@ Colours are defined only in `src/lib/colors.ts` (mirroring `design/tokens.json`)
 
 ```bash
 npm install
-npm run dev     # Next.js on :3000 and PartyKit on :1999
+npm run dev     # Next.js on :3000 and the Worker (wrangler dev) on :1999
 npm test        # unit tests
 npm run test:e2e   # starts its own servers on 3000 and 1999: stop `npm run dev` first
 npm run build && npm run check:bundle   # confirms no word data in the client bundle
@@ -35,7 +35,7 @@ Create a room, share the link, and the host picks a round length (2, 3 or 5 minu
 
 Open `/woordle/challenge/new`, enter 5 words and pick a time per word (1, 2, 3 or 5 minutes). `POST /parties/challenge/seal` checks the words against the guess list, rejects duplicates, and returns a token: the words and limit sealed with AES-GCM under `CHALLENGE_KEY`. The link is `/woordle/challenge/<token>`; it never shows the words, and the browser receives each word only when its round ends. `POST /parties/challenge/check` answers whether one word is in the guess list, so the form can mark a bad word as you leave its field. Nothing is stored. Rotating `CHALLENGE_KEY` makes every existing link say it has expired.
 
-Locally, `CHALLENGE_KEY` comes from the git-ignored `.env` (`openssl rand -base64 32`). In production it is set with `npx partykit env add CHALLENGE_KEY`, never as `NEXT_PUBLIC_*`.
+Locally, `CHALLENGE_KEY` comes from the git-ignored `.env` (`openssl rand -base64 32`). `wrangler dev` reads it from there. In production it is a Worker secret, set with `npx wrangler secret put CHALLENGE_KEY`, never as `NEXT_PUBLIC_*`.
 
 ## Reconnecting and leaving
 
