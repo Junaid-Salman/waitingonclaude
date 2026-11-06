@@ -2,7 +2,7 @@
 
 Orientation for Claude sessions. Goal: find the right file in one hop and avoid reading expensive ones. Facts here were checked against the code on 2026-10-29. If code and this file disagree, the code wins: fix this file in the same change.
 
-Rules and workflow live in `CLAUDE.md` (auto-loaded). Behaviour, protocol and decisions live in `.claude/Docs/Project Overview Spec.md` (the Spec). This file is the map between them.
+Rules live in `.claude/rules/`: `core.md` always loads; `architecture.md`, `coding-style.md` and `testing.md` load only when matching files are touched (their `paths:` frontmatter). Behaviour, protocol and decisions live in `.claude/Docs/Project Overview Spec.md` (the Spec). This file is the map between them.
 
 ## 1. What this is
 
@@ -52,8 +52,9 @@ Master plan: `.claude/Plans/00-phased-plan.md`. One plan per phase in `.claude/P
 ## 3. Repo map
 
 ```text
-CLAUDE.md                  rules, workflow (local only, git-ignored)
 .claude/
+  rules/                   core (always), architecture, coding-style, testing (path-scoped; local only, git-ignored)
+  commands/  agents/       /plan-phase + phase-planner (Opus), /implement-plan + implementer (Sonnet)
   ARCHITECTURE.md          this file
   Docs/                    Spec, Proposal, original idea (tracked; idea file is read-only)
   Plans/  Reviews/         per-phase plans and reviews (local only, git-ignored)
@@ -223,7 +224,9 @@ Search with grep for a heading or symbol instead of opening a large file. Use `o
 
 ## 11. Workflow in one paragraph
 
-Per phase: write `.claude/Plans/phase-<n>-<name>.md` (goal, tasks, tests, acceptance, risks), get approval, build protocol -> server -> client, verify (lint, unit, e2e, build, bundle check), save a review to `.claude/Reviews/`, update the Spec and this file, get sign-off. Commit and push only when asked; confirm before every push; no Claude attribution anywhere. Plans, reviews and `CLAUDE.md` stay local.
+Per phase: write `.claude/Plans/phase-<n>-<name>.md` (goal, tasks, tests, acceptance, risks), get approval, build protocol -> server -> client, verify (lint, unit, e2e, build, bundle check), save a review to `.claude/Reviews/`, update the Spec and this file, get sign-off. Commit and push only when asked; confirm before every push; no Claude attribution anywhere. Plans, reviews and `.claude/rules/` stay local.
+
+Commands: `/plan-phase <phase | DI-n | task>` plans on Opus 5.5 (the `phase-planner` agent drafts, the main session settles owner questions); `/implement-plan <plan path>` builds on Sonnet 5.5 (one `implementer` agent for the whole plan; the main session checks each step, runs the gate and review). Definitions: `.claude/commands/`, `.claude/agents/`.
 
 ## 12. Keeping this file honest
 
