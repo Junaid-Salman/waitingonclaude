@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:prod": "playwright test -c playwright.prod.config.ts",
     "party:deploy": "wrangler deploy",
     "check:bundle": "node scripts/check-bundle.mjs"
   },

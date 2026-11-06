@@ -11,6 +11,7 @@ import { defineConfig, devices } from "@playwright/test";
 // e2e/resilience.spec.ts turns it back on.
 export default defineConfig({
   testDir: "e2e",
+  testIgnore: "prod-smoke.spec.ts", // production only: npm run test:prod
   use: { baseURL: "http://localhost:3000", contextOptions: { reducedMotion: "reduce" } },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
