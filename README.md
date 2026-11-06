@@ -21,7 +21,7 @@ npm run build && npm run check:bundle   # confirms no word data in the client bu
 ```
 
 Create `.env` with `CHALLENGE_KEY` (`openssl rand -base64 32`) and `.env.local` with
-`NEXT_PUBLIC_PARTYKIT_HOST=localhost:1999`. The full README arrives in Phase 6.
+`NEXT_PUBLIC_PARTYKIT_HOST=localhost:1999`.
 
 ## Rooms
 
@@ -45,3 +45,6 @@ A player who refreshes or loses their connection keeps their seat for 60 seconds
 
 Each player may send 2 guesses per second and each connection 30 messages per 10 seconds; faster guesses are answered "Slow down". The Challenge link endpoints are limited per IP address (60 word checks per 10 seconds, 20 links per minute; IPv6 per /64), held in memory for at most two windows and never logged.
 
+## Licences
+
+Word data and font licences are listed in [`LICENSES.md`](LICENSES.md).
