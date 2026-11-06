@@ -12,8 +12,20 @@ export function runsFor(words) {
   return starts.map((i) => words.slice(i, i + 3));
 }
 
-export function findLeaks(source, lists) {
+// Passages are prose, so the probe is the first 40 characters of the first, middle and last entry.
+export function passageProbes(passages) {
+  const at = [0, Math.floor((passages.length - 1) / 2), passages.length - 1];
+  return at.map((i) => passages[i].text.slice(0, 40));
+}
+
+export function findLeaks(source, lists, passages = []) {
   const leaks = [];
+  if (passages.length > 0) {
+    for (const probe of passageProbes(passages)) {
+      // A bundler may escape quotes when it embeds a string, so look for that form as well.
+      if (source.includes(probe) || source.includes(JSON.stringify(probe).slice(1, -1))) leaks.push(`passage: ${probe}`);
+    }
+  }
   for (const [name, words] of Object.entries(lists)) {
     for (const run of runsFor(words)) {
       const quoted = run.map((w) => `"${w}"`).join(",");
@@ -38,6 +50,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     answers: JSON.parse(readFileSync(join(root, "party/data/answers.json"), "utf8")),
     guesses: JSON.parse(readFileSync(join(root, "party/data/guesses.json"), "utf8")),
   };
+  const passages = JSON.parse(readFileSync(join(root, "party/data/passages.json"), "utf8"));
   const staticDir = join(root, ".next/static");
   if (!existsSync(staticDir)) {
     console.error("check-bundle: no .next/static; run `npm run build` first");
@@ -46,14 +59,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const problems = [];
   let scanned = 0;
   for (const file of walk(staticDir)) {
-    if (/(answers|guesses)\.json/.test(file)) problems.push(`word list asset: ${file}`);
+    if (/(answers|guesses|passages)\.json/.test(file)) problems.push(`word list asset: ${file}`);
     if (!/\.(js|json|html|txt|map)$/.test(file)) continue;
     scanned++;
-    for (const leak of findLeaks(readFileSync(file, "utf8"), lists)) problems.push(`${file}: ${leak}`);
+    for (const leak of findLeaks(readFileSync(file, "utf8"), lists, passages)) problems.push(`${file}: ${leak}`);
   }
   if (problems.length > 0) {
-    console.error(`check-bundle: word data found in client output\n${problems.join("\n")}`);
+    console.error(`check-bundle: word or passage data found in client output\n${problems.join("\n")}`);
     process.exit(1);
   }
-  console.log(`check-bundle: ${scanned} client files scanned, no word data found`);
+  console.log(`check-bundle: ${scanned} client files scanned, no word or passage data found`);
 }

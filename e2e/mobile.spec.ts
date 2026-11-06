@@ -15,7 +15,7 @@ for (const phone of PHONES) {
     test.use({ viewport: { width: phone.width, height: phone.height }, hasTouch: true, isMobile: true });
 
     test("no page scrolls sideways", async ({ page }) => {
-      for (const path of ["/", "/woordle", "/woordle/solo", "/woordle/challenge/new"]) {
+      for (const path of ["/", "/woordle", "/woordle/solo", "/woordle/challenge/new", "/type-race", "/type-race/practice"]) {
         await page.goto(path);
         expect(await noSideScroll(page), path).toBe(true);
       }
@@ -38,6 +38,13 @@ for (const phone of PHONES) {
       await expect(page.getByRole("status")).toHaveText("");
       const bottom = await page.locator('[aria-label="Keyboard"]').evaluate((k) => k.getBoundingClientRect().bottom);
       expect(bottom).toBeLessThanOrEqual(phone.height);
+    });
+
+    test("type race practice: the best-on-desktop notice is visible", async ({ page }) => {
+      await page.goto("/type-race/practice");
+      await expect(page.getByTestId("desktop-notice")).toBeVisible();
+      await expect(page.getByTestId("desktop-notice")).toContainText("computer with a keyboard");
+      expect(await noSideScroll(page)).toBe(true);
     });
 
     test("lobby and match fit the width", async ({ page }) => {

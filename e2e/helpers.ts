@@ -46,3 +46,10 @@ export async function typeGuess(page: Page, word: string) {
   await page.keyboard.type(word);
   await submitPaced(page);
 }
+
+// Types text on the physical keyboard at a human-ish pace for Type Race. 70 ms per key is about 170
+// WPM, under the 250 WPM cap the race server will enforce in 8.2, and slow enough that the page
+// keeps up on a loaded machine.
+export async function typePaced(page: Page, text: string, delayMs = 70) {
+  await page.keyboard.type(text, { delay: delayMs });
+}
